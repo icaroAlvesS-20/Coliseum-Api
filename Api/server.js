@@ -5,24 +5,37 @@ import { PrismaClient } from '@prisma/client';
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// ✅ Configuração do Prisma para Vercel
+const isVercel = process.env.VERCEL === '1';
+
 const prisma = new PrismaClient({
-  log: ['warn', 'error'],
-  errorFormat: 'minimal'
+  log: isVercel ? ['error'] : ['warn', 'error'],
+  errorFormat: 'minimal',
+  datasources: {
+    db: {
+      url: process.env.DATABASE_URL
+    }
+  }
 });
 
-// ✅ CORS CORRIGIDO - VERSÃO DEFINITIVA
+// ✅ CORS OTIMIZADO PARA VERCEL
 app.use(cors({
   origin: function (origin, callback) {
     const allowedOrigins = [
       /https:\/\/coliseum-.*-icaroass-projects\.vercel\.app$/,
       /https:\/\/coliseum-.*-icaroase-projects\.vercel\.app$/,
+      /https:\/\/coliseum-.*\.vercel\.app$/,
       'https://coliseum-ebon.vercel.app',
+      'https://coliseum-git-main-icaroass-projects.vercel.app',
+      'https://coliseum-icaroass-projects.vercel.app',
       'http://localhost:3000',
       'http://localhost:3001',
-      'http://localhost:5500'
+      'http://localhost:5500',
+      'http://127.0.0.1:3000',
+      'http://127.0.0.1:3001'
     ];
     
-    // Permite requisições sem origin (como mobile apps, Postman, etc.)
+    // Permite requisições sem origin (mobile apps, Postman, etc.)
     if (!origin) return callback(null, true);
     
     // Verifica se a origin está na lista de permitidas
@@ -37,46 +50,52 @@ app.use(cors({
     return callback(new Error('CORS não permitido'), false);
   },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With']
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With', 'Origin']
 }));
 
 // ✅ MIDDLEWARE PARA REQUISIÇÕES OPTIONS (pré-flight)
 app.options('*', cors());
 
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true }));
 
 // ========== MIDDLEWARE DE LOG ========== //
 app.use((req, res, next) => {
-    console.log(`[${new Date().toLocaleTimeString()}] ${req.method} ${req.path}`);
+    console.log(`[${new Date().toLocaleTimeString()}] ${req.method} ${req.path}`, 
+                req.method !== 'GET' ? req.body : '');
     next();
 });
 
-// ========== ROTAS API COM BANCO REAL ========== //
+// ========== ROTAS API ========== //
 
-// Health Check
+// ✅ Health Check Melhorado
 app.get('/api/health', async (req, res) => {
     try {
         const totalUsuarios = await prisma.usuario.count();
-        const databaseInfo = await prisma.$queryRaw`SELECT version() as postgres_version, current_database() as database_name`;
+        const databaseInfo = await prisma.$queryRaw`SELECT version() as postgres_version, current_database() as database_name, now() as server_time`;
         
         res.json({ 
             status: 'online', 
+            environment: isVercel ? 'production' : 'development',
+            platform: 'Vercel',
             database: 'Neon PostgreSQL',
             totalUsuarios: totalUsuarios,
             databaseInfo: databaseInfo[0],
-            timestamp: new Date().toISOString()
+            timestamp: new Date().toISOString(),
+            server: 'Coliseum API v1.0'
         });
     } catch (error) {
         console.error('❌ Erro no health check:', error);
         res.status(500).json({ 
             error: 'Erro no banco de dados',
-            details: error.message 
+            details: error.message,
+            environment: isVercel ? 'production' : 'development'
         });
     }
 });
 
-// GET /api/ranking
+// ✅ GET /api/ranking
 app.get('/api/ranking', async (req, res) => {
     try {
         console.log('📊 Buscando ranking do banco real...');
@@ -92,7 +111,8 @@ app.get('/api/ranking', async (req, res) => {
             },
             orderBy: { 
                 pontuacao: 'desc' 
-            }
+            },
+            take: 100 // Limite para performance
         });
 
         const rankingComPosicoes = usuarios.map((user, index) => ({
@@ -112,7 +132,7 @@ app.get('/api/ranking', async (req, res) => {
     }
 });
 
-// POST /api/usuarios - Login/Cadastro
+// ✅ POST /api/usuarios - Login/Cadastro
 app.post('/api/usuarios', async (req, res) => {
     try {
         const { ra, nome, senha, serie, action = 'login' } = req.body;
@@ -123,6 +143,11 @@ app.post('/api/usuarios', async (req, res) => {
             return res.status(400).json({ error: 'RA é obrigatório' });
         }
 
+        // Validação básica
+        if (ra.length < 3) {
+            return res.status(400).json({ error: 'RA inválido' });
+        }
+
         if (action === 'cadastro') {
             if (!nome || !senha || !serie) {
                 return res.status(400).json({ 
@@ -130,13 +155,21 @@ app.post('/api/usuarios', async (req, res) => {
                 });
             }
 
+            // Validações adicionais
+            if (nome.length < 2) {
+                return res.status(400).json({ error: 'Nome muito curto' });
+            }
+            if (senha.length < 3) {
+                return res.status(400).json({ error: 'Senha muito curta' });
+            }
+
             try {
                 const novoUsuario = await prisma.usuario.create({
                     data: {
-                        ra: ra.trim(),
+                        ra: ra.toString().trim(),
                         nome: nome.trim(),
                         senha: senha,
-                        serie: serie.trim(),
+                        serie: serie.toString().trim(),
                         pontuacao: 0,
                         desafiosCompletados: 0
                     },
@@ -150,7 +183,7 @@ app.post('/api/usuarios', async (req, res) => {
                     }
                 });
 
-                console.log(`✅ Novo usuário cadastrado: ${novoUsuario.nome}`);
+                console.log(`✅ Novo usuário cadastrado: ${novoUsuario.nome} (RA: ${novoUsuario.ra})`);
 
                 res.json({
                     success: true,
@@ -173,13 +206,14 @@ app.post('/api/usuarios', async (req, res) => {
             }
 
         } else {
+            // LOGIN
             if (!senha) {
                 return res.status(400).json({ error: 'Senha é obrigatória para login' });
             }
 
             const usuario = await prisma.usuario.findFirst({
                 where: {
-                    ra: ra.trim(),
+                    ra: ra.toString().trim(),
                     senha: senha
                 },
                 select: {
@@ -199,7 +233,7 @@ app.post('/api/usuarios', async (req, res) => {
                 });
             }
 
-            console.log(`✅ Login bem-sucedido: ${usuario.nome}`);
+            console.log(`✅ Login bem-sucedido: ${usuario.nome} (RA: ${usuario.ra})`);
 
             res.json({
                 success: true,
@@ -218,7 +252,39 @@ app.post('/api/usuarios', async (req, res) => {
     }
 });
 
-// PUT /api/usuarios/:id - Atualizar pontuação
+// ✅ GET /api/usuarios/:id - Buscar usuário específico
+app.get('/api/usuarios/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const usuario = await prisma.usuario.findUnique({
+            where: { id: parseInt(id) },
+            select: {
+                id: true,
+                nome: true,
+                ra: true,
+                serie: true,
+                pontuacao: true,
+                desafiosCompletados: true
+            }
+        });
+
+        if (!usuario) {
+            return res.status(404).json({ error: 'Usuário não encontrado' });
+        }
+
+        res.json(usuario);
+
+    } catch (error) {
+        console.error('❌ Erro ao buscar usuário:', error);
+        res.status(500).json({ 
+            error: 'Erro ao buscar usuário',
+            details: error.message 
+        });
+    }
+});
+
+// ✅ PUT /api/usuarios/:id - Atualizar pontuação
 app.put('/api/usuarios/:id', async (req, res) => {
     try {
         const { id } = req.params;
@@ -267,7 +333,7 @@ app.put('/api/usuarios/:id', async (req, res) => {
     }
 });
 
-// POST /api/desafio-completo
+// ✅ POST /api/desafio-completo
 app.post('/api/desafio-completo', async (req, res) => {
     try {
         const { usuarioId, pontuacaoGanha } = req.body;
@@ -290,7 +356,7 @@ app.post('/api/desafio-completo', async (req, res) => {
             }
         });
 
-        console.log(`🎯 Desafio completo registrado para usuário ${usuarioId}`);
+        console.log(`🎯 Desafio completo registrado para usuário ${usuarioId} (+${pontuacaoGanha} pontos)`);
 
         res.json({
             success: true,
@@ -307,9 +373,56 @@ app.post('/api/desafio-completo', async (req, res) => {
     }
 });
 
+// ✅ GET /api/usuarios - Listar todos usuários (apenas desenvolvimento)
+app.get('/api/usuarios', async (req, res) => {
+    if (isVercel) {
+        return res.status(403).json({ error: 'Endpoint disponível apenas em desenvolvimento' });
+    }
+
+    try {
+        const usuarios = await prisma.usuario.findMany({
+            select: {
+                id: true,
+                nome: true,
+                ra: true,
+                serie: true,
+                pontuacao: true,
+                desafiosCompletados: true
+            },
+            orderBy: { id: 'asc' }
+        });
+
+        res.json(usuarios);
+
+    } catch (error) {
+        console.error('❌ Erro ao listar usuários:', error);
+        res.status(500).json({ 
+            error: 'Erro ao listar usuários',
+            details: error.message 
+        });
+    }
+});
+
 // ✅ ROTA DE FALLBACK PARA PÁGINAS NÃO ENCONTRADAS
 app.use('*', (req, res) => {
-    console.log(`❌ Rota não encontrada: ${req.originalUrl}`);
+    console.log(`❌ Rota não encontrada: ${req.method} ${req.originalUrl}`);
+    
+    if (req.originalUrl.startsWith('/api/')) {
+        return res.status(404).json({ 
+            error: 'Endpoint API não encontrado',
+            path: req.originalUrl,
+            method: req.method,
+            availableEndpoints: [
+                'GET  /api/health',
+                'GET  /api/ranking', 
+                'POST /api/usuarios',
+                'GET  /api/usuarios/:id',
+                'PUT  /api/usuarios/:id',
+                'POST /api/desafio-completo'
+            ]
+        });
+    }
+    
     res.status(404).json({ 
         error: 'Rota não encontrada',
         path: req.originalUrl,
@@ -321,6 +434,7 @@ app.use('*', (req, res) => {
 
 async function startServer() {
     try {
+        console.log('🔄 Conectando ao banco de dados...');
         await prisma.$connect();
         console.log('✅ Conectado ao Neon PostgreSQL via Prisma');
         
@@ -328,15 +442,16 @@ async function startServer() {
         console.log(`👥 Total de usuários no banco: ${totalUsuarios}`);
         
         app.listen(PORT, () => {
-            console.log('\n🚀🚀🚀 API COLISEUM COM BANCO REAL! 🚀🚀🚀');
+            console.log('\n🚀🚀🚀 API COLISEUM RODANDO NO VERCELL! 🚀🚀🚀');
             console.log(`📍 Porta: ${PORT}`);
-            console.log(`🌐 URL: http://localhost:${PORT}`);
+            console.log(`🌐 Ambiente: ${isVercel ? 'PRODUCTION' : 'DEVELOPMENT'}`);
             console.log(`💾 Banco: Neon PostgreSQL`);
             console.log(`👥 Usuários: ${totalUsuarios}`);
-            console.log(`\n📋 ENDPOINTS:`);
+            console.log(`\n📋 ENDPOINTS DISPONÍVEIS:`);
             console.log(`   ❤️  GET  /api/health`);
             console.log(`   🏆 GET  /api/ranking`);
-            console.log(`   👤 POST /api/usuarios`);
+            console.log(`   👤 POST /api/usuarios (login/cadastro)`);
+            console.log(`   👤 GET  /api/usuarios/:id`);
             console.log(`   ✏️  PUT  /api/usuarios/:id`);
             console.log(`   🎯 POST /api/desafio-completo`);
             console.log(`\n🎯 PRONTO PARA RECEBER REQUISIÇÕES!`);
@@ -363,4 +478,7 @@ process.on('SIGTERM', async () => {
     process.exit(0);
 });
 
+// Inicializa o servidor
 startServer();
+
+export default app;
