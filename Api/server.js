@@ -10,9 +10,10 @@ const prisma = new PrismaClient({
   errorFormat: 'minimal'
 });
 
-// ✅ CORRETO: CORS configurado
+// ✅ CORS CORRIGIDO - TODOS OS DOMÍNIOS INCLUÍDOS
 app.use(cors({
   origin: [
+    'https://coliseum-el85mo0ge-icaroass-projects.vercel.app',
     'https://coliseum-ebon.vercel.app',
     'https://coliseum-git-main-iconcase-projects.vercel.app',
     'http://localhost:3000'
@@ -20,7 +21,6 @@ app.use(cors({
   credentials: true
 }));
 
-// ✅ ADICIONE ESTA LINHA - express.json() DEPOIS do CORS
 app.use(express.json());
 
 // ========== MIDDLEWARE DE LOG ========== //
@@ -322,6 +322,5 @@ process.on('SIGINT', async () => {
     console.log('✅ Conexão com o banco fechada');
     process.exit(0);
 });
-
 
 startServer();
