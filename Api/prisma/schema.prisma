@@ -1,0 +1,23 @@
+// prisma/schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Usuario {
+  id                  Int      @id @default(autoincrement())
+  nome                String
+  serie               String
+  ra                  String   @unique
+  senha               String
+  pontuacao           Int      @default(0)
+  desafiosCompletados Int      @default(0)
+  criadoEm            DateTime @default(now())
+  atualizadoEm        DateTime @updatedAt
+
+  @@map("usuario")
+}
