@@ -1,4 +1,3 @@
-// api/server.js - BACKEND COM BANCO REAL
 import express from 'express';
 import cors from 'cors';
 import { PrismaClient } from '@prisma/client';
@@ -11,7 +10,17 @@ const prisma = new PrismaClient({
   errorFormat: 'minimal'
 });
 
-app.use(cors());
+// ✅ CORRETO: CORS configurado
+app.use(cors({
+  origin: [
+    'https://coliseum-ebon.vercel.app',
+    'https://coliseum-git-main-iconcase-projects.vercel.app',
+    'http://localhost:3000'
+  ],
+  credentials: true
+}));
+
+// ✅ ADICIONE ESTA LINHA - express.json() DEPOIS do CORS
 app.use(express.json());
 
 // ========== MIDDLEWARE DE LOG ========== //
@@ -313,5 +322,6 @@ process.on('SIGINT', async () => {
     console.log('✅ Conexão com o banco fechada');
     process.exit(0);
 });
+
 
 startServer();
