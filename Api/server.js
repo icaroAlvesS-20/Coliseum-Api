@@ -1,172 +1,80 @@
 import express from 'express';
 import cors from 'cors';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { PrismaClient } from '@prisma/client';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// ✅ Configuração do Prisma para Vercel
-const isVercel = process.env.VERCEL === '1';
+// ✅ Configuração de paths
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-const prisma = new PrismaClient({
-  log: isVercel ? ['error'] : ['warn', 'error'],
-  errorFormat: 'minimal'
-});
-
-// ✅ CORS para Vercel
-app.use(cors({
-  origin: true, // Permite todas as origins no Vercel
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
-}));
-
+// ✅ Middleware
+app.use(cors());
 app.use(express.json());
 
-// ========== ROTAS ========== //
+// ✅ SERVIR ARQUIVOS ESTÁTICOS DO FRONTEND
+app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'src')));
 
-// ✅ ROTA RAIZ
+// ✅ ROTAS DO SEU FRONTEND (SPA - Single Page Application)
 app.get('/', (req, res) => {
-  res.json({
-    message: '🚀 API Coliseum Online no Vercel!',
-    status: 'operational',
-    timestamp: new Date().toISOString(),
-    endpoints: [
-      'GET  /api/health',
-      'GET  /api/ranking',
-      'POST /api/usuarios'
-    ]
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+app.get('/login', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+app.get('/ranking', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+app.get('/perfil', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+app.get('/desafios', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// ========== ROTAS API (BACKEND) ========== //
+app.get('/api/health', (req, res) => {
+  res.json({ 
+    status: 'online', 
+    message: 'API Coliseum funcionando!',
+    timestamp: new Date().toISOString()
   });
 });
 
-// ✅ HEALTH CHECK
-app.get('/api/health', async (req, res) => {
-  try {
-    await prisma.$queryRaw`SELECT 1`;
-    res.json({ 
-      status: 'online', 
-      database: 'connected',
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    res.status(500).json({ 
-      error: 'Database connection failed',
-      details: error.message 
-    });
-  }
-});
-
-// ✅ RANKING
 app.get('/api/ranking', async (req, res) => {
   try {
+    const prisma = new PrismaClient();
     const usuarios = await prisma.usuario.findMany({
-      select: {
-        id: true,
-        nome: true,
-        ra: true,
-        serie: true,
-        pontuacao: true,
-        desafiosCompletados: true,
-      },
-      orderBy: { 
-        pontuacao: 'desc' 
-      }
+      orderBy: { pontuacao: 'desc' }
     });
-
-    const ranking = usuarios.map((user, index) => ({
+    
+    const rankingComPosicoes = usuarios.map((user, index) => ({
       ...user,
       posicao: index + 1
     }));
     
-    res.json(ranking);
+    res.json(rankingComPosicoes);
   } catch (error) {
-    console.error('Erro ao buscar ranking:', error);
-    res.status(500).json({ 
-      error: 'Erro ao carregar ranking'
-    });
+    res.status(500).json({ error: 'Erro ao buscar ranking' });
   }
 });
 
-// ✅ LOGIN/CADASTRO
-app.post('/api/usuarios', async (req, res) => {
-  try {
-    const { ra, nome, senha, serie, action = 'login' } = req.body;
-    
-    if (!ra) {
-      return res.status(400).json({ error: 'RA é obrigatório' });
-    }
-
-    if (action === 'cadastro') {
-      const novoUsuario = await prisma.usuario.create({
-        data: {
-          ra: ra.toString().trim(),
-          nome: nome.trim(),
-          senha: senha,
-          serie: serie.toString().trim(),
-          pontuacao: 0,
-          desafiosCompletados: 0
-        }
-      });
-
-      res.json({
-        success: true,
-        message: `Cadastro realizado! Bem-vindo, ${nome}!`,
-        usuario: novoUsuario
-      });
-    } else {
-      const usuario = await prisma.usuario.findFirst({
-        where: {
-          ra: ra.toString().trim(),
-          senha: senha
-        }
-      });
-
-      if (!usuario) {
-        return res.status(401).json({ 
-          error: 'RA ou senha incorretos' 
-        });
-      }
-
-      res.json({
-        success: true,
-        message: `Login realizado! Bem-vindo de volta, ${usuario.nome}!`,
-        usuario: usuario
-      });
-    }
-  } catch (error) {
-    if (error.code === 'P2002') {
-      return res.status(409).json({ 
-        error: 'RA já cadastrado' 
-      });
-    }
-    res.status(500).json({ 
-      error: 'Erro interno do servidor'
-    });
-  }
+// ✅ ROTA DE FALLBACK - sempre retorna o frontend
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// ✅ ROTA DE FALLBACK
-app.use('*', (req, res) => {
-  res.status(404).json({ 
-    error: 'Rota não encontrada',
-    path: req.originalUrl
-  });
+app.listen(PORT, () => {
+  console.log(`🚀 Servidor rodando: http://localhost:${PORT}`);
+  console.log(`📁 Frontend servido de: ${__dirname}/public`);
 });
-
-// ✅ INICIALIZAÇÃO
-async function startServer() {
-  try {
-    await prisma.$connect();
-    console.log('✅ Conectado ao PostgreSQL');
-    
-    app.listen(PORT, () => {
-      console.log(`🚀 Servidor rodando na porta ${PORT}`);
-    });
-  } catch (error) {
-    console.error('❌ Erro ao iniciar servidor:', error);
-    process.exit(1);
-  }
-}
-
-startServer();
 
 export default app;
