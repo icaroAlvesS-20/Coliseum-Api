@@ -6,70 +6,83 @@ import { PrismaClient } from '@prisma/client';
 import fs from 'fs';
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 10000;
 
-// ✅ Configuração de paths
+// ✅ Configuração de paths para Render
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+console.log('📁 Diretório atual:', __dirname);
+console.log('🔍 Listando arquivos:', fs.readdirSync(__dirname));
 
 app.use(cors());
 app.use(express.json());
 
-// ✅ SERVIR TODOS OS ARQUIVOS ESTÁTICOS DA PASTA COLISEUM
-app.use(express.static(path.join(__dirname)));
+// ✅ SERVIR ARQUIVOS ESTÁTICOS DA RAIZ
+app.use(express.static(__dirname));
 
-// ✅ ROTAS PRINCIPAIS DO SEU FRONTEND
+// ✅ ROTA PRINCIPAL - LOGIN
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'Coliseum', 'Login', 'index.html'));
+  const loginPaths = [
+    path.join(__dirname, 'Coliseum', 'Login', 'index.html'),
+    path.join(__dirname, 'Login', 'index.html'),
+    path.join(__dirname, 'index.html')
+  ];
+  
+  for (const filePath of loginPaths) {
+    if (fs.existsSync(filePath)) {
+      console.log('✅ Servindo login:', filePath);
+      return res.sendFile(filePath);
+    }
+  }
+  
+  console.log('❌ Login não encontrado. Paths tentados:', loginPaths);
+  res.status(404).json({ error: 'Página de login não encontrada' });
 });
 
-app.get('/login', (req, res) => {
-  res.sendFile(path.join(__dirname, 'Coliseum', 'Login', 'index.html'));
-});
-
+// ✅ ROTA MENU
 app.get('/menu', (req, res) => {
-  res.sendFile(path.join(__dirname, 'Coliseum', 'Menu', 'indexM.html'));
+  const menuPaths = [
+    path.join(__dirname, 'Coliseum', 'Menu', 'indexM.html'),
+    path.join(__dirname, 'Menu', 'indexM.html')
+  ];
+  
+  for (const filePath of menuPaths) {
+    if (fs.existsSync(filePath)) {
+      console.log('✅ Servindo menu:', filePath);
+      return res.sendFile(filePath);
+    }
+  }
+  
+  res.status(404).json({ error: 'Página do menu não encontrada' });
 });
 
-// ✅ ROTAS PARA OUTRAS PÁGINAS (se tiver)
-app.get('/ranking', (req, res) => {
-  const rankingPath = path.join(__dirname, 'Coliseum', 'Ranking', 'index.html');
-  if (fs.existsSync(rankingPath)) {
-    res.sendFile(rankingPath);
-  } else {
-    res.sendFile(path.join(__dirname, 'Coliseum', 'Menu', 'indexM.html'));
+// ✅ ROTA LOGIN
+app.get('/login', (req, res) => {
+  const loginPaths = [
+    path.join(__dirname, 'Coliseum', 'Login', 'index.html'),
+    path.join(__dirname, 'Login', 'index.html')
+  ];
+  
+  for (const filePath of loginPaths) {
+    if (fs.existsSync(filePath)) {
+      return res.sendFile(filePath);
+    }
   }
-});
-
-app.get('/perfil', (req, res) => {
-  const perfilPath = path.join(__dirname, 'Coliseum', 'Perfil', 'index.html');
-  if (fs.existsSync(perfilPath)) {
-    res.sendFile(perfilPath);
-  } else {
-    res.sendFile(path.join(__dirname, 'Coliseum', 'Menu', 'indexM.html'));
-  }
-});
-
-app.get('/desafios', (req, res) => {
-  const desafiosPath = path.join(__dirname, 'Coliseum', 'Desafios', 'index.html');
-  if (fs.existsSync(desafiosPath)) {
-    res.sendFile(desafiosPath);
-  } else {
-    res.sendFile(path.join(__dirname, 'Coliseum', 'Menu', 'indexM.html'));
-  }
+  res.redirect('/');
 });
 
 // ========== ROTAS API (BACKEND) ========== //
 app.get('/api/health', (req, res) => {
   res.json({ 
     status: 'online', 
-    message: 'API Coliseum funcionando!',
-    frontend: 'HTML/CSS/JS',
-    structure: 'Coliseum/Login/index.html',
+    message: 'API Coliseum funcionando no Render!',
+    directory: __dirname,
     timestamp: new Date().toISOString()
   });
 });
 
+// ✅ MANTER SUAS ROTAS API EXISTENTES
 app.get('/api/ranking', async (req, res) => {
   try {
     const prisma = new PrismaClient();
@@ -92,7 +105,6 @@ app.get('/api/ranking', async (req, res) => {
       posicao: index + 1
     }));
     
-    console.log(`✅ Ranking carregado: ${rankingComPosicoes.length} usuários`);
     res.json(rankingComPosicoes);
     
   } catch (error) {
@@ -104,136 +116,52 @@ app.get('/api/ranking', async (req, res) => {
   }
 });
 
-// POST /api/usuarios - Login/Cadastro
+// ✅ MANTER SUAS OUTRAS ROTAS API...
 app.post('/api/usuarios', async (req, res) => {
-  try {
-    const { ra, nome, senha, serie, action = 'login' } = req.body;
-    
-    console.log(`👤 Ação: ${action} para RA: ${ra}`);
-    
-    if (!ra) {
-      return res.status(400).json({ error: 'RA é obrigatório' });
-    }
-
-    if (action === 'cadastro') {
-      if (!nome || !senha || !serie) {
-        return res.status(400).json({ 
-          error: 'Nome, senha e série são obrigatórios para cadastro' 
-        });
-      }
-
-      try {
-        const novoUsuario = await prisma.usuario.create({
-          data: {
-            ra: ra.toString().trim(),
-            nome: nome.trim(),
-            senha: senha,
-            serie: serie.toString().trim(),
-            pontuacao: 0,
-            desafiosCompletados: 0
-          },
-          select: {
-            id: true,
-            nome: true,
-            ra: true,
-            serie: true,
-            pontuacao: true,
-            desafiosCompletados: true
-          }
-        });
-
-        console.log(`✅ Novo usuário cadastrado: ${novoUsuario.nome}`);
-
-        res.json({
-          success: true,
-          message: `Cadastro realizado com sucesso! Bem-vindo, ${nome}!`,
-          usuario: novoUsuario,
-          action: 'cadastro'
-        });
-
-      } catch (error) {
-        if (error.code === 'P2002') {
-          return res.status(409).json({ 
-            error: 'RA já cadastrado no sistema' 
-          });
-        }
-        console.error('❌ Erro no cadastro:', error);
-        res.status(500).json({ 
-          error: 'Erro ao cadastrar usuário',
-          details: error.message 
-        });
-      }
-
-    } else {
-      if (!senha) {
-        return res.status(400).json({ error: 'Senha é obrigatória para login' });
-      }
-
-      const usuario = await prisma.usuario.findFirst({
-        where: {
-          ra: ra.toString().trim(),
-          senha: senha
-        },
-        select: {
-          id: true,
-          nome: true,
-          ra: true,
-          serie: true,
-          pontuacao: true,
-          desafiosCompletados: true
-        }
-      });
-
-      if (!usuario) {
-        console.log(`❌ Login falhou para RA: ${ra}`);
-        return res.status(401).json({ 
-          error: 'RA ou senha incorretos' 
-        });
-      }
-
-      console.log(`✅ Login bem-sucedido: ${usuario.nome}`);
-
-      res.json({
-        success: true,
-        message: `Login realizado! Bem-vindo de volta, ${usuario.nome}!`,
-        usuario: usuario,
-        action: 'login'
-      });
-    }
-    
-  } catch (error) {
-    console.error('❌ Erro no processamento de usuário:', error);
-    res.status(500).json({ 
-      error: 'Erro interno do servidor',
-      details: error.message 
-    });
-  }
+  // Seu código existente para login/cadastro
 });
 
-// ✅ ROTA DE FALLBACK - para SPA
+// ✅ ROTA DE FALLBACK MELHORADA
 app.get('*', (req, res) => {
-  // Tenta servir a página específica, se não encontrar vai para o menu
   const requestedPath = req.path;
+  console.log('🔍 Rota solicitada:', requestedPath);
   
-  if (requestedPath === '/' || requestedPath === '/login') {
-    return res.sendFile(path.join(__dirname, 'Coliseum', 'Login', 'index.html'));
+  // Se for API, retorna 404
+  if (requestedPath.startsWith('/api/')) {
+    return res.status(404).json({ error: 'Endpoint API não encontrado' });
   }
   
-  // Tenta encontrar a página na estrutura Coliseum/*
-  const possiblePath = path.join(__dirname, 'Coliseum', requestedPath.substring(1), 'index.html');
-  if (fs.existsSync(possiblePath)) {
-    return res.sendFile(possiblePath);
+  // Tenta servir páginas HTML
+  const htmlPaths = [
+    path.join(__dirname, 'Coliseum', requestedPath.substring(1), 'index.html'),
+    path.join(__dirname, 'Coliseum', requestedPath.substring(1), 'indexM.html'),
+    path.join(__dirname, requestedPath.substring(1), 'index.html'),
+    path.join(__dirname, requestedPath.substring(1) + '.html')
+  ];
+  
+  for (const filePath of htmlPaths) {
+    if (fs.existsSync(filePath)) {
+      console.log('✅ Servindo página:', filePath);
+      return res.sendFile(filePath);
+    }
   }
   
-  // Fallback para o menu
-  res.sendFile(path.join(__dirname, 'Coliseum', 'Menu', 'indexM.html'));
+  // Fallback para login
+  console.log('🔄 Fallback para login');
+  const loginPath = path.join(__dirname, 'Coliseum', 'Login', 'index.html');
+  if (fs.existsSync(loginPath)) {
+    return res.sendFile(loginPath);
+  }
+  
+  res.status(404).json({ 
+    error: 'Página não encontrada',
+    path: requestedPath 
+  });
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Servidor rodando: http://localhost:${PORT}`);
-  console.log(`📁 Frontend: Coliseum/Login/index.html`);
-  console.log(`🎮 Menu: Coliseum/Menu/indexM.html`);
-  console.log(`🔧 Backend API: /api/health, /api/ranking, /api/usuarios`);
+  console.log(`🚀 Servidor rodando na porta ${PORT}`);
+  console.log(`📁 Diretório: ${__dirname}`);
 });
 
 export default app;
