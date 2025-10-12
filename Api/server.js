@@ -10,16 +10,39 @@ const prisma = new PrismaClient({
   errorFormat: 'minimal'
 });
 
-// ✅ CORS CORRIGIDO - TODOS OS DOMÍNIOS INCLUÍDOS
+// ✅ CORS CORRIGIDO - VERSÃO DEFINITIVA
 app.use(cors({
-  origin: [
-    'https://coliseum-el85mo0ge-icaroass-projects.vercel.app',
-    'https://coliseum-ebon.vercel.app',
-    'https://coliseum-git-main-iconcase-projects.vercel.app',
-    'http://localhost:3000'
-  ],
-  credentials: true
+  origin: function (origin, callback) {
+    const allowedOrigins = [
+      /https:\/\/coliseum-.*-icaroass-projects\.vercel\.app$/,
+      /https:\/\/coliseum-.*-icaroase-projects\.vercel\.app$/,
+      'https://coliseum-ebon.vercel.app',
+      'http://localhost:3000',
+      'http://localhost:3001',
+      'http://localhost:5500'
+    ];
+    
+    // Permite requisições sem origin (como mobile apps, Postman, etc.)
+    if (!origin) return callback(null, true);
+    
+    // Verifica se a origin está na lista de permitidas
+    if (allowedOrigins.some(pattern => {
+      if (typeof pattern === 'string') return origin === pattern;
+      return pattern.test(origin);
+    })) {
+      return callback(null, true);
+    }
+    
+    console.log(`🚫 CORS bloqueado para: ${origin}`);
+    return callback(new Error('CORS não permitido'), false);
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With']
 }));
+
+// ✅ MIDDLEWARE PARA REQUISIÇÕES OPTIONS (pré-flight)
+app.options('*', cors());
 
 app.use(express.json());
 
@@ -284,6 +307,16 @@ app.post('/api/desafio-completo', async (req, res) => {
     }
 });
 
+// ✅ ROTA DE FALLBACK PARA PÁGINAS NÃO ENCONTRADAS
+app.use('*', (req, res) => {
+    console.log(`❌ Rota não encontrada: ${req.originalUrl}`);
+    res.status(404).json({ 
+        error: 'Rota não encontrada',
+        path: req.originalUrl,
+        method: req.method
+    });
+});
+
 // ========== INICIALIZAÇÃO ========== //
 
 async function startServer() {
@@ -318,6 +351,13 @@ async function startServer() {
 // Graceful shutdown
 process.on('SIGINT', async () => {
     console.log('\n🛑 Desligando servidor...');
+    await prisma.$disconnect();
+    console.log('✅ Conexão com o banco fechada');
+    process.exit(0);
+});
+
+process.on('SIGTERM', async () => {
+    console.log('\n🛑 Desligando servidor (SIGTERM)...');
     await prisma.$disconnect();
     console.log('✅ Conexão com o banco fechada');
     process.exit(0);
