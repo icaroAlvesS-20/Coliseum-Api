@@ -71,7 +71,8 @@ app.get('/', (req, res) => {
             ranking: '/api/ranking',
             usuarios: '/api/usuarios (POST)',
             atualizar_usuario: '/api/usuarios/:id (PUT)',
-            desafio_completo: '/api/desafio-completo (POST)'
+            desafio_completo: '/api/desafio-completo (POST)',
+            reset_usuarios: '/api/reset (DELETE)'
         },
         frontend: 'Repositório separado no Vercel',
         timestamp: new Date().toISOString()
@@ -334,6 +335,59 @@ app.post('/api/desafio-completo', async (req, res) => {
     }
 });
 
+// ========== ROTAS DE ADMIN/RESET ========== //
+
+// ✅ DELETE /api/usuarios - Remove TODOS os usuários
+app.delete('/api/usuarios', async (req, res) => {
+    try {
+        console.log('🗑️ SOLICITAÇÃO: Deletar TODOS os usuários');
+        
+        const result = await prisma.usuario.deleteMany({});
+        
+        console.log(`✅ TODOS os usuários removidos: ${result.count} registros deletados`);
+        
+        res.json({ 
+            success: true, 
+            message: `Todos os usuários foram removidos (${result.count} registros)`,
+            registrosRemovidos: result.count
+        });
+        
+    } catch (error) {
+        console.error('❌ Erro ao deletar usuários:', error);
+        res.status(500).json({ 
+            success: false,
+            error: 'Erro ao resetar banco de dados',
+            details: error.message 
+        });
+    }
+});
+
+// ✅ POST /api/reset - Reset completo do banco
+app.post('/api/reset', async (req, res) => {
+    try {
+        console.log('🔄 SOLICITAÇÃO: Reset completo do banco');
+        
+        const result = await prisma.usuario.deleteMany({});
+        
+        console.log(`✅ Banco resetado: ${result.count} usuários removidos`);
+        
+        res.json({ 
+            success: true, 
+            message: `Banco de dados resetado com sucesso! (${result.count} registros removidos)`,
+            registrosRemovidos: result.count,
+            timestamp: new Date().toISOString()
+        });
+        
+    } catch (error) {
+        console.error('❌ Erro ao resetar banco:', error);
+        res.status(500).json({ 
+            success: false,
+            error: 'Erro ao resetar banco de dados',
+            details: error.message 
+        });
+    }
+});
+
 // ✅ ROTA DE FALLBACK PARA API
 app.use('/api/*', (req, res) => {
     console.log(`❌ Rota API não encontrada: ${req.originalUrl}`);
@@ -346,7 +400,9 @@ app.use('/api/*', (req, res) => {
             'GET  /api/ranking',
             'POST /api/usuarios',
             'PUT  /api/usuarios/:id',
-            'POST /api/desafio-completo'
+            'POST /api/desafio-completo',
+            'DELETE /api/usuarios (RESET)',
+            'POST /api/reset (RESET)'
         ]
     });
 });
@@ -383,6 +439,8 @@ async function startServer() {
             console.log(`   👤 POST /api/usuarios`);
             console.log(`   ✏️  PUT  /api/usuarios/:id`);
             console.log(`   🎯 POST /api/desafio-completo`);
+            console.log(`   🗑️  DELETE /api/usuarios (RESET)`);
+            console.log(`   🔄 POST /api/reset (RESET)`);
             console.log(`\n🎯 BACKEND PRONTO PARA RECEBER REQUISIÇÕES DO FRONTEND!`);
         });
         
