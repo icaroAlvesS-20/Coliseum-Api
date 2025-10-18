@@ -6,13 +6,29 @@ const app = express();
 const PORT = process.env.PORT || 10000;
 
 const prisma = new PrismaClient({
-  log: ['error'],
-  errorFormat: 'minimal'
+  log: ['warn', 'error'],
+  errorFormat: 'minimal',
+  datasources: {
+    db: {
+      url: process.env.DATABASE_URL,
+    },
+  },
 });
 
-// ✅ CORS COMPLETO PARA PERMITIR TODOS OS FRONTS
-// ✅ CORS COMPLETO ATUALIZADO
-// ✅ CORS COMPLETO ATUALIZADO
+prisma.$use(async (params, next) => {
+  try {
+    return await next(params);
+  } catch (error) {
+    if (error.code === 'P1001' || error.message.includes('Closed')) {
+      console.log('🔄 Reconectando ao banco...');
+      // Tenta reconectar
+      await prisma.$connect();
+      return await next(params);
+    }
+    throw error;
+  }
+});
+
 app.use(cors({
   origin: function (origin, callback) {
     const allowedOrigins = [
@@ -524,6 +540,7 @@ process.on('SIGTERM', async () => {
 startServer();
 
 export default app;
+
 
 
 
