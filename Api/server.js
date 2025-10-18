@@ -10,7 +10,7 @@ const prisma = new PrismaClient({
   errorFormat: 'minimal',
   datasources: {
     db: {
-      url: process.env.DATABASE_URL,
+      url: process.env.DATABASE_URL + "?connection_limit=1&pool_timeout=30",
     },
   },
 });
@@ -20,14 +20,21 @@ prisma.$use(async (params, next) => {
     return await next(params);
   } catch (error) {
     if (error.code === 'P1001' || error.message.includes('Closed')) {
-      console.log('🔄 Reconectando ao banco...');
-      // Tenta reconectar
+      console.log('🔄 Reconectando ao banco Neon...');
       await prisma.$connect();
       return await next(params);
     }
     throw error;
   }
 });
+setInterval(async () => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+  } catch (error) {
+    console.log('🔄 Reconectando periodicamente...');
+    await prisma.$connect();
+  }
+}, 60000); // A cada 1 minuto
 
 app.use(cors({
   origin: function (origin, callback) {
@@ -273,56 +280,82 @@ app.post('/api/usuarios', async (req, res) => {
     }
 });
 
-// ✅ PUT /api/usuarios/:id - Atualizar pontuação
 app.put('/api/usuarios/:id', async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { pontuacao, desafiosCompletados } = req.body;
+  try {
+    const { id } = req.params;
+    const { pontuacao, desafiosCompletados } = req.body;
 
-        console.log(`🔄 Atualizando usuário ${id}:`, { pontuacao, desafiosCompletados });
+    console.log(`🔄 Atualizando usuário ${id}:`, { pontuacao, desafiosCompletados });
 
-        const updateData = {};
-        if (pontuacao !== undefined) updateData.pontuacao = parseInt(pontuacao);
-        if (desafiosCompletados !== undefined) updateData.desafiosCompletados = parseInt(desafiosCompletados);
-
-        if (Object.keys(updateData).length === 0) {
-            return res.status(400).json({ error: 'Nenhum dado para atualizar' });
+    const result = await prisma.$transaction(async (tx) => {
+      const usuarioAtualizado = await tx.usuario.update({
+        where: { id: parseInt(id) },
+        data: {
+          pontuacao: parseInt(pontuacao),
+          desafiosCompletados: parseInt(desafiosCompletados),
+        },
+        select: {
+          id: true,
+          nome: true,
+          ra: true,
+          serie: true,
+          pontuacao: true,
+          desafiosCompletados: true
         }
+      });
+      return usuarioAtualizado;
+    });
 
-        const usuarioAtualizado = await prisma.usuario.update({
-            where: { id: parseInt(id) },
-            data: updateData,
-            select: {
-                id: true,
-                nome: true,
-                ra: true,
-                serie: true,
-                pontuacao: true,
-                desafiosCompletados: true
-            }
-        });
+    console.log(`✅ Usuário ${id} atualizado e PERSISTIDO:`, result);
 
-        console.log(`✅ Usuário ${id} atualizado com sucesso`);
+    res.json({
+      success: true,
+      message: 'Dados atualizados e salvos no banco!',
+      usuario: result
+    });
 
-        res.json({
-            success: true,
-            message: 'Dados atualizados com sucesso!',
-            usuario: usuarioAtualizado
-        });
-
-    } catch (error) {
-        console.error('❌ Erro ao atualizar usuário:', error);
-        if (error.code === 'P2025') {
-            return res.status(404).json({ error: 'Usuário não encontrado' });
-        }
-        res.status(500).json({ 
-            error: 'Erro ao atualizar dados do usuário',
-            details: error.message 
-        });
+  } catch (error) {
+    console.error('❌ Erro ao atualizar usuário:', error);
+    
+    if (error.code === 'P1001' || error.message.includes('Closed')) {
+      await prisma.$connect();
     }
+    
+    res.status(500).json({ 
+      error: 'Erro ao atualizar dados do usuário',
+      details: error.message 
+    });
+  }
 });
 
-// ✅ POST /api/desafio-completo
+app.get('/api/debug/user/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const usuario = await prisma.usuario.findUnique({
+      where: { id: parseInt(id) },
+      select: {
+        id: true,
+        nome: true,
+        ra: true,
+        serie: true,
+        pontuacao: true,
+        desafiosCompletados: true,
+        atualizadoEm: true
+      }
+    });
+    
+    console.log(`🔍 DEBUG Usuário ${id}:`, usuario);
+    
+    res.json({
+      usuario: usuario,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('❌ Erro no debug:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.post('/api/desafio-completo', async (req, res) => {
     try {
         const { usuarioId, pontuacaoGanha } = req.body;
@@ -549,6 +582,7 @@ process.on('SIGTERM', async () => {
 startServer();
 
 export default app;
+
 
 
 
