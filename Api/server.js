@@ -335,9 +335,63 @@ app.post('/api/desafio-completo', async (req, res) => {
     }
 });
 
-// ========== ROTAS DE ADMIN/RESET ========== //
+app.delete('/api/usuarios/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        
+        console.log(`🗑️ SOLICITAÇÃO: Excluir usuário ID: ${id}`);
+        
+        // Verifica se o usuário existe
+        const usuario = await prisma.usuario.findUnique({
+            where: { id: parseInt(id) }
+        });
 
-// ✅ DELETE /api/usuarios - Remove TODOS os usuários
+        if (!usuario) {
+            console.log(`❌ Usuário ${id} não encontrado`);
+            return res.status(404).json({ 
+                success: false,
+                error: 'Usuário não encontrado' 
+            });
+        }
+
+        // Exclui o usuário
+        const usuarioExcluido = await prisma.usuario.delete({
+            where: { id: parseInt(id) },
+            select: {
+                id: true,
+                nome: true,
+                ra: true,
+                serie: true
+            }
+        });
+
+        console.log(`✅ Usuário excluído: ${usuarioExcluido.nome} (ID: ${usuarioExcluido.id})`);
+
+        res.json({
+            success: true,
+            message: `Usuário "${usuarioExcluido.nome}" excluído com sucesso!`,
+            usuario: usuarioExcluido
+        });
+
+    } catch (error) {
+        console.error('❌ Erro ao excluir usuário:', error);
+        
+        if (error.code === 'P2025') {
+            return res.status(404).json({ 
+                success: false,
+                error: 'Usuário não encontrado' 
+            });
+        }
+        
+        res.status(500).json({ 
+            success: false,
+            error: 'Erro ao excluir usuário',
+            details: error.message 
+        });
+    }
+});
+
+
 app.delete('/api/usuarios', async (req, res) => {
     try {
         console.log('🗑️ SOLICITAÇÃO: Deletar TODOS os usuários');
@@ -468,3 +522,4 @@ process.on('SIGTERM', async () => {
 startServer();
 
 export default app;
+
