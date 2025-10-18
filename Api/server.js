@@ -11,13 +11,15 @@ const prisma = new PrismaClient({
 });
 
 // ✅ CORS COMPLETO PARA PERMITIR TODOS OS FRONTS
+// ✅ CORS COMPLETO ATUALIZADO
 app.use(cors({
   origin: function (origin, callback) {
     const allowedOrigins = [
       'https://coliseum-ebon.vercel.app',
       'https://coliseum-m71foc1um-icaroass-projects.vercel.app',
-      /https:\/\/coliseum-.*\.vercel\.app$/,
-      /https:\/\/.*-icaroass-projects\.vercel\.app$/,
+      'https://coliseum-peon87g6t-icaroass-projects.vercel.app', // 🆕 NOVO DOMÍNIO
+      /https:\/\/coliseum-.*\.vercel\.app$/, // ✅ Todos subdomínios coliseum-*
+      /https:\/\/.*-icaroass-projects\.vercel\.app$/, // ✅ Todos seus projetos
       'http://localhost:3000',
       'http://127.0.0.1:5500',
       'http://localhost:5500',
@@ -45,7 +47,6 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With']
 }));
-
 // ✅ MIDDLEWARE PARA OPTIONS
 app.options('*', cors());
 
@@ -522,4 +523,5 @@ process.on('SIGTERM', async () => {
 startServer();
 
 export default app;
+
 
