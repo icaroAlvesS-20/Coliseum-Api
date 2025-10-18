@@ -12,6 +12,7 @@ const prisma = new PrismaClient({
 
 // ✅ CORS COMPLETO PARA PERMITIR TODOS OS FRONTS
 // ✅ CORS COMPLETO ATUALIZADO
+// ✅ CORS COMPLETO ATUALIZADO
 app.use(cors({
   origin: function (origin, callback) {
     const allowedOrigins = [
@@ -523,5 +524,6 @@ process.on('SIGTERM', async () => {
 startServer();
 
 export default app;
+
 
 
