@@ -98,30 +98,39 @@ app.get('/', (req, res) => {
 });
 
 // ✅ Health Check
+// ✅ HEALTH CHECK MELHORADO - MANTÉM CONEXÃO ATIVA
 app.get('/api/health', async (req, res) => {
+  try {
+    // Força uma query simples para manter conexão ativa
+    await prisma.$queryRaw`SELECT 1`;
+    const totalUsuarios = await prisma.usuario.count();
+    const databaseInfo = await prisma.$queryRaw`SELECT version() as postgres_version, current_database() as database_name, now() as server_time`;
+    
+    res.json({ 
+      status: 'online', 
+      environment: 'production',
+      platform: 'Render',
+      database: 'Neon PostgreSQL',
+      totalUsuarios: totalUsuarios,
+      databaseInfo: databaseInfo[0],
+      timestamp: new Date().toISOString(),
+      server: 'Coliseum API v1.0'
+    });
+  } catch (error) {
+    console.error('❌ Erro no health check:', error);
+    // Tenta reconectar
     try {
-        const totalUsuarios = await prisma.usuario.count();
-        const databaseInfo = await prisma.$queryRaw`SELECT version() as postgres_version, current_database() as database_name, now() as server_time`;
-        
-        res.json({ 
-            status: 'online', 
-            environment: 'production',
-            platform: 'Render',
-            database: 'Neon PostgreSQL',
-            totalUsuarios: totalUsuarios,
-            databaseInfo: databaseInfo[0],
-            timestamp: new Date().toISOString(),
-            server: 'Coliseum API v1.0'
-        });
-    } catch (error) {
-        console.error('❌ Erro no health check:', error);
-        res.status(500).json({ 
-            error: 'Erro no banco de dados',
-            details: error.message
-        });
+      await prisma.$connect();
+      console.log('✅ Reconectado ao banco');
+    } catch (reconnectError) {
+      console.error('❌ Falha na reconexão:', reconnectError);
     }
+    res.status(500).json({ 
+      error: 'Erro no banco de dados',
+      details: error.message
+    });
+  }
 });
-
 // ✅ GET /api/ranking
 app.get('/api/ranking', async (req, res) => {
     try {
@@ -540,6 +549,7 @@ process.on('SIGTERM', async () => {
 startServer();
 
 export default app;
+
 
 
 
