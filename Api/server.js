@@ -293,84 +293,56 @@ app.post('/api/usuarios', async (req, res) => {
 
 
 // ✅ PUT /api/usuarios/:id - Atualizar usuário COMPLETO COM PERSISTÊNCIA GARANTIDA
+// ✅ PUT /api/usuarios/:id - Atualizar usuário COMPLETO COM PERSISTÊNCIA GARANTIDA
 app.put('/api/usuarios/:id', async (req, res) => {
     try {
         const { id } = req.params;
         const { nome, ra, serie, pontuacao, desafiosCompletados } = req.body;
 
-        console.log(`🔄 [PERSIST] Atualizando usuário COMPLETO ${id}:`, { 
+        console.log(`🔄 [UPDATE COMPLETO] Usuário ${id}:`, { 
             nome, ra, serie, pontuacao, desafiosCompletados 
         });
 
         // ✅ GARANTE CONEXÃO ANTES DA ATUALIZAÇÃO
         await ensureConnection();
 
-        // ✅ TRANSACTION PARA GARANTIR PERSISTÊNCIA
-        const usuarioAtualizado = await prisma.$transaction(async (tx) => {
-            // ATUALIZA O USUÁRIO COM TODOS OS CAMPOS
-            const result = await tx.usuario.update({
-                where: { id: parseInt(id) },
-                data: {
-                    nome: nome,
-                    ra: ra,
-                    serie: serie,
-                    pontuacao: parseInt(pontuacao),
-                    desafiosCompletados: parseInt(desafiosCompletados),
-                },
-                select: {
-                    id: true,
-                    nome: true,
-                    ra: true,
-                    serie: true,
-                    pontuacao: true,
-                    desafiosCompletados: true
-                }
-            });
-            
-            // ✅ CONFIRMA A PERSISTÊNCIA IMEDIATAMENTE
-            const confirmacao = await tx.usuario.findUnique({
-                where: { id: parseInt(id) },
-                select: { 
-                    nome: true, 
-                    ra: true, 
-                    serie: true, 
-                    pontuacao: true, 
-                    desafiosCompletados: true 
-                }
-            });
-            
-            console.log(`✅ [CONFIRMADO] Dados COMPLETOS persistidos para ${id}:`, confirmacao);
-            return result;
-        }, {
-            timeout: 10000,
-            maxWait: 5000
+        // ATUALIZA O USUÁRIO COM TODOS OS CAMPOS
+        const usuarioAtualizado = await prisma.usuario.update({
+            where: { id: parseInt(id) },
+            data: {
+                nome: nome,
+                ra: ra,
+                serie: serie,
+                pontuacao: parseInt(pontuacao),
+                desafiosCompletados: parseInt(desafiosCompletados),
+            },
+            select: {
+                id: true,
+                nome: true,
+                ra: true,
+                serie: true,
+                pontuacao: true,
+                desafiosCompletados: true
+            }
         });
 
-        console.log(`🎉 [SUCESSO] Usuário ${id} COMPLETAMENTE PERSISTIDO no banco:`, usuarioAtualizado);
+        console.log(`🎉 [SUCESSO TOTAL] Usuário ${id} atualizado:`, usuarioAtualizado);
 
         res.json({
             success: true,
-            message: 'Usuário COMPLETAMENTE atualizado no banco de dados!',
+            message: 'Usuário COMPLETAMENTE atualizado no banco!',
             usuario: usuarioAtualizado
         });
 
     } catch (error) {
-        console.error('❌ [ERRO CRÍTICO] Falha ao persistir usuário COMPLETO ${id}:', error);
-        
-        if (error.code === 'P1001' || error.message.includes('Closed') || error.message.includes('connection')) {
-            console.log('🔄 Tentando reconexão de emergência...');
-            await ensureConnection();
-        }
-        
+        console.error('❌ [ERRO] Falha ao atualizar usuário:', error);
         res.status(500).json({ 
             success: false,
-            error: 'FALHA ao persistir dados COMPLETOS no banco',
-            details: error.message,
-            code: error.code
+            error: 'FALHA ao atualizar usuário no banco',
+            details: error.message
         });
     }
 });
-
 app.post('/api/desafio-completo', async (req, res) => {
     try {
         const { usuarioId, pontuacaoGanha } = req.body;
@@ -661,5 +633,6 @@ process.on('SIGTERM', async () => {
 startServer();
 
 export default app;
+
 
 
