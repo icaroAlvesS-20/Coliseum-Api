@@ -292,22 +292,28 @@ app.post('/api/usuarios', async (req, res) => {
 });
 
 // ✅ PUT /api/usuarios/:id - Atualizar pontuação COM PERSISTÊNCIA GARANTIDA
+// ✅ PUT /api/usuarios/:id - Atualizar usuário COMPLETO COM PERSISTÊNCIA GARANTIDA
 app.put('/api/usuarios/:id', async (req, res) => {
     try {
         const { id } = req.params;
-        const { pontuacao, desafiosCompletados } = req.body;
+        const { nome, ra, serie, pontuacao, desafiosCompletados } = req.body;
 
-        console.log(`🔄 [PERSIST] Atualizando usuário ${id}:`, { pontuacao, desafiosCompletados });
+        console.log(`🔄 [PERSIST] Atualizando usuário COMPLETO ${id}:`, { 
+            nome, ra, serie, pontuacao, desafiosCompletados 
+        });
 
         // ✅ GARANTE CONEXÃO ANTES DA ATUALIZAÇÃO
         await ensureConnection();
 
         // ✅ TRANSACTION PARA GARANTIR PERSISTÊNCIA
         const usuarioAtualizado = await prisma.$transaction(async (tx) => {
-            // ATUALIZA O USUÁRIO
+            // ATUALIZA O USUÁRIO COM TODOS OS CAMPOS
             const result = await tx.usuario.update({
                 where: { id: parseInt(id) },
                 data: {
+                    nome: nome,
+                    ra: ra,
+                    serie: serie,
                     pontuacao: parseInt(pontuacao),
                     desafiosCompletados: parseInt(desafiosCompletados),
                 },
@@ -324,26 +330,32 @@ app.put('/api/usuarios/:id', async (req, res) => {
             // ✅ CONFIRMA A PERSISTÊNCIA IMEDIATAMENTE
             const confirmacao = await tx.usuario.findUnique({
                 where: { id: parseInt(id) },
-                select: { pontuacao: true, desafiosCompletados: true }
+                select: { 
+                    nome: true, 
+                    ra: true, 
+                    serie: true, 
+                    pontuacao: true, 
+                    desafiosCompletados: true 
+                }
             });
             
-            console.log(`✅ [CONFIRMADO] Dados persistidos para ${id}:`, confirmacao);
+            console.log(`✅ [CONFIRMADO] Dados COMPLETOS persistidos para ${id}:`, confirmacao);
             return result;
         }, {
             timeout: 10000, // 10 segundos de timeout
             maxWait: 5000   // 5 segundos máximo de espera
         });
 
-        console.log(`🎉 [SUCESSO] Usuário ${id} PERSISTIDO no banco:`, usuarioAtualizado);
+        console.log(`🎉 [SUCESSO] Usuário ${id} COMPLETAMENTE PERSISTIDO no banco:`, usuarioAtualizado);
 
         res.json({
             success: true,
-            message: 'Dados PERSISTIDOS no banco de dados!',
+            message: 'Usuário COMPLETAMENTE atualizado no banco de dados!',
             usuario: usuarioAtualizado
         });
 
     } catch (error) {
-        console.error('❌ [ERRO CRÍTICO] Falha ao persistir usuário ${id}:', error);
+        console.error('❌ [ERRO CRÍTICO] Falha ao persistir usuário COMPLETO ${id}:', error);
         
         // Tenta reconectar em caso de erro de conexão
         if (error.code === 'P1001' || error.message.includes('Closed') || error.message.includes('connection')) {
@@ -353,7 +365,7 @@ app.put('/api/usuarios/:id', async (req, res) => {
         
         res.status(500).json({ 
             success: false,
-            error: 'FALHA ao persistir dados no banco',
+            error: 'FALHA ao persistir dados COMPLETOS no banco',
             details: error.message,
             code: error.code
         });
@@ -651,3 +663,4 @@ process.on('SIGTERM', async () => {
 startServer();
 
 export default app;
+
