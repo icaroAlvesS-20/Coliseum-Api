@@ -35,3 +35,4 @@ model Video {
 
   @@map("videos")
 }
+
