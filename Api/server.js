@@ -117,12 +117,27 @@ app.get('/', (req, res) => {
     });
 });
 
-// ✅ HEALTH CHECK - COM VERIFICAÇÃO DE PERSISTÊNCIA
 app.get('/api/health', async (req, res) => {
     try {
         await ensureConnection();
-        const totalUsuarios = await prisma.usuario.count();
-        const totalVideos = await prisma.video.count();
+        
+        let totalUsuarios = 0;
+        let totalVideos = 0;
+        let databaseStatus = 'connected';
+        
+        try {
+            totalUsuarios = await prisma.usuario.count();
+        } catch (error) {
+            databaseStatus = 'tables_missing';
+            console.log('⚠️ Tabela de usuários não encontrada');
+        }
+        
+        try {
+            totalVideos = await prisma.video.count();
+        } catch (error) {
+            console.log('⚠️ Tabela de vídeos não encontrada');
+        }
+        
         const databaseInfo = await prisma.$queryRaw`SELECT version() as postgres_version, current_database() as database_name, now() as server_time`;
         
         res.json({ 
@@ -132,10 +147,11 @@ app.get('/api/health', async (req, res) => {
             database: 'Neon PostgreSQL',
             totalUsuarios: totalUsuarios,
             totalVideos: totalVideos,
+            databaseStatus: databaseStatus,
             databaseInfo: databaseInfo[0],
             connectionStatus: connectionStatus,
             timestamp: new Date().toISOString(),
-            server: 'Coliseum API v2.0 - VIDEOS ADDED'
+            server: 'Coliseum API v2.0 - AUTO MIGRATION'
         });
     } catch (error) {
         console.error('❌ Erro no health check:', error);
@@ -146,7 +162,6 @@ app.get('/api/health', async (req, res) => {
         });
     }
 });
-
 // ✅ GET /api/ranking
 app.get('/api/ranking', async (req, res) => {
     try {
@@ -761,11 +776,41 @@ setInterval(async () => {
 
 // ========== INICIALIZAÇÃO ========== //
 
+
 async function startServer() {
     try {
         await ensureConnection();
+        
+        console.log('🔧 Verificando e criando tabelas...');
+        try {
+            await prisma.usuario.count();
+            console.log('✅ Tabelas já existem no banco');
+        } catch (error) {
+            if (error.code === 'P2021') {
+                console.log('📦 Criando tabelas no banco...');
+                // Usa db push para criar as tabelas
+                const { execSync } = await import('child_process');
+                try {
+                    execSync('npx prisma db push --accept-data-loss', { stdio: 'inherit' });
+                    console.log('✅ Tabelas criadas com sucesso!');
+                } catch (pushError) {
+                    console.error('❌ Erro ao criar tabelas:', pushError);
+                    throw pushError;
+                }
+            } else {
+                throw error;
+            }
+        }
+        
         const totalUsuarios = await prisma.usuario.count();
-        const totalVideos = await prisma.video.count();
+        let totalVideos = 0;
+        
+        try {
+            totalVideos = await prisma.video.count();
+        } catch (error) {
+            console.log('⚠️ Tabela de vídeos ainda não disponível');
+        }
+        
         console.log('✅ Conectado ao Neon PostgreSQL via Prisma');
         console.log(`👥 Total de usuários no banco: ${totalUsuarios}`);
         console.log(`🎬 Total de vídeos no banco: ${totalVideos}`);
@@ -777,7 +822,7 @@ async function startServer() {
             console.log(`💾 Banco: Neon PostgreSQL`);
             console.log(`👥 Usuários: ${totalUsuarios}`);
             console.log(`🎬 Vídeos: ${totalVideos}`);
-            console.log(`🔧 Versão: 2.0 - VIDEOS MANAGEMENT`);
+            console.log(`🔧 Versão: 2.0 - AUTO MIGRATION`);
             console.log(`\n📋 ENDPOINTS:`);
             console.log(`   ❤️  GET  /api/health`);
             console.log(`   🏆 GET  /api/ranking`);
@@ -792,15 +837,14 @@ async function startServer() {
             console.log(`   🎬 PUT  /api/videos/:id`);
             console.log(`   🎬 DELETE /api/videos/:id`);
             console.log(`   🔍 GET  /api/debug/persistence/:id`);
-            console.log(`\n🎯 BACKEND COM GERENCIAMENTO DE VÍDEOS!`);
+            console.log(`\n🎯 BACKEND COM MIGRATION AUTOMÁTICA!`);
         });
         
     } catch (error) {
-        console.error('❌ Falha ao conectar com o banco:', error);
+        console.error('❌ Falha crítica ao iniciar servidor:', error);
         process.exit(1);
     }
 }
-
 // Graceful shutdown
 process.on('SIGINT', async () => {
     console.log('\n🛑 Desligando servidor...');
@@ -819,3 +863,4 @@ process.on('SIGTERM', async () => {
 startServer();
 
 export default app;
+
