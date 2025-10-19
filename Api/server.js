@@ -47,14 +47,13 @@ app.use(async (req, res, next) => {
 });
 
 // ✅ CORS COMPLETO PARA PERMITIR TODOS OS FRONTS
-// ✅ CORS COMPLETO PARA PERMITIR TODOS OS FRONTS
 app.use(cors({
   origin: function (origin, callback) {
     const allowedOrigins = [
       'https://coliseum-ebon.vercel.app',
       'https://coliseum-m71foc1um-icaroass-projects.vercel.app',
       'https://coliseum-peon87g6t-icaroass-projects.vercel.app',
-      'https://coliseum-bigalfocm-icaroass-projects.vercel.app', // ✅ NOVA ORIGEM
+      'https://coliseum-bigalfocm-icaroass-projects.vercel.app',
       /https:\/\/coliseum-.*\.vercel\.app$/,
       /https:\/\/.*-icaroass-projects\.vercel\.app$/,
       'http://localhost:3000',
@@ -82,6 +81,7 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With']
 }));
+
 // ✅ MIDDLEWARE PARA OPTIONS
 app.options('*', cors());
 
@@ -109,7 +109,8 @@ app.get('/', (req, res) => {
             atualizar_usuario: '/api/usuarios/:id (PUT)',
             desafio_completo: '/api/desafio-completo (POST)',
             reset_usuarios: '/api/reset (DELETE)',
-            debug: '/api/debug/persistence/:id'
+            debug: '/api/debug/persistence/:id',
+            videos: '/api/videos (GET, POST, PUT, DELETE)'
         },
         frontend: 'Repositório separado no Vercel',
         timestamp: new Date().toISOString()
@@ -121,6 +122,7 @@ app.get('/api/health', async (req, res) => {
     try {
         await ensureConnection();
         const totalUsuarios = await prisma.usuario.count();
+        const totalVideos = await prisma.video.count();
         const databaseInfo = await prisma.$queryRaw`SELECT version() as postgres_version, current_database() as database_name, now() as server_time`;
         
         res.json({ 
@@ -129,10 +131,11 @@ app.get('/api/health', async (req, res) => {
             platform: 'Render',
             database: 'Neon PostgreSQL',
             totalUsuarios: totalUsuarios,
+            totalVideos: totalVideos,
             databaseInfo: databaseInfo[0],
             connectionStatus: connectionStatus,
             timestamp: new Date().toISOString(),
-            server: 'Coliseum API v2.0 - PERSISTENCE FIX'
+            server: 'Coliseum API v2.0 - VIDEOS ADDED'
         });
     } catch (error) {
         console.error('❌ Erro no health check:', error);
@@ -292,9 +295,7 @@ app.post('/api/usuarios', async (req, res) => {
     }
 });
 
-
-// ✅ PUT /api/usuarios/:id - Atualizar usuário COMPLETO COM PERSISTÊNCIA GARANTIDA
-// ✅ PUT /api/usuarios/:id - Atualizar usuário COMPLETO COM PERSISTÊNCIA GARANTIDA
+// ✅ PUT /api/usuarios/:id - Atualizar usuário COMPLETO
 app.put('/api/usuarios/:id', async (req, res) => {
     try {
         const { id } = req.params;
@@ -304,10 +305,8 @@ app.put('/api/usuarios/:id', async (req, res) => {
             nome, ra, serie, pontuacao, desafiosCompletados 
         });
 
-        // ✅ GARANTE CONEXÃO ANTES DA ATUALIZAÇÃO
         await ensureConnection();
 
-        // ATUALIZA O USUÁRIO COM TODOS OS CAMPOS
         const usuarioAtualizado = await prisma.usuario.update({
             where: { id: parseInt(id) },
             data: {
@@ -344,6 +343,8 @@ app.put('/api/usuarios/:id', async (req, res) => {
         });
     }
 });
+
+// ✅ POST /api/desafio-completo
 app.post('/api/desafio-completo', async (req, res) => {
     try {
         const { usuarioId, pontuacaoGanha } = req.body;
@@ -499,6 +500,179 @@ app.post('/api/reset', async (req, res) => {
     }
 });
 
+// ========== ROTAS PARA VÍDEOS ========== //
+
+// ✅ GET /api/videos - Listar todos os vídeos
+app.get('/api/videos', async (req, res) => {
+    try {
+        await ensureConnection();
+        
+        const videos = await prisma.video.findMany({
+            orderBy: { materia: 'asc' }
+        });
+        
+        console.log(`✅ Vídeos carregados: ${videos.length} vídeos`);
+        res.json(videos);
+        
+    } catch (error) {
+        console.error('❌ Erro ao buscar vídeos:', error);
+        res.status(500).json({ 
+            error: 'Erro ao carregar vídeos',
+            details: error.message 
+        });
+    }
+});
+
+// ✅ POST /api/videos - Adicionar novo vídeo
+app.post('/api/videos', async (req, res) => {
+    try {
+        const { titulo, materia, categoria, url, descricao, duracao } = req.body;
+        
+        console.log(`🎬 Adicionando novo vídeo: ${titulo}`);
+        
+        if (!titulo || !materia || !categoria || !url || !duracao) {
+            return res.status(400).json({
+                success: false,
+                error: 'Todos os campos obrigatórios devem ser preenchidos'
+            });
+        }
+
+        await ensureConnection();
+        
+        const novoVideo = await prisma.video.create({
+            data: {
+                titulo: titulo.trim(),
+                materia: materia.trim(),
+                categoria: categoria.trim(),
+                url: url.trim(),
+                descricao: descricao ? descricao.trim() : '',
+                duracao: parseInt(duracao)
+            }
+        });
+
+        console.log(`✅ Novo vídeo adicionado: ${novoVideo.titulo}`);
+
+        res.json({
+            success: true,
+            message: 'Vídeo adicionado com sucesso!',
+            video: novoVideo
+        });
+        
+    } catch (error) {
+        console.error('❌ Erro ao adicionar vídeo:', error);
+        res.status(500).json({ 
+            success: false,
+            error: 'Erro ao adicionar vídeo',
+            details: error.message 
+        });
+    }
+});
+
+// ✅ PUT /api/videos/:id - Atualizar vídeo
+app.put('/api/videos/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { titulo, materia, categoria, url, descricao, duracao } = req.body;
+        
+        console.log(`🎬 Atualizando vídeo ${id}: ${titulo}`);
+
+        await ensureConnection();
+
+        // Verifica se o vídeo existe
+        const videoExistente = await prisma.video.findUnique({
+            where: { id: parseInt(id) }
+        });
+
+        if (!videoExistente) {
+            return res.status(404).json({
+                success: false,
+                error: 'Vídeo não encontrado'
+            });
+        }
+        
+        const videoAtualizado = await prisma.video.update({
+            where: { id: parseInt(id) },
+            data: {
+                titulo: titulo.trim(),
+                materia: materia.trim(),
+                categoria: categoria.trim(),
+                url: url.trim(),
+                descricao: descricao ? descricao.trim() : '',
+                duracao: parseInt(duracao)
+            }
+        });
+
+        console.log(`✅ Vídeo atualizado: ${videoAtualizado.titulo}`);
+
+        res.json({
+            success: true,
+            message: 'Vídeo atualizado com sucesso!',
+            video: videoAtualizado
+        });
+        
+    } catch (error) {
+        console.error('❌ Erro ao atualizar vídeo:', error);
+        res.status(500).json({ 
+            success: false,
+            error: 'Erro ao atualizar vídeo',
+            details: error.message 
+        });
+    }
+});
+
+// ✅ DELETE /api/videos/:id - Excluir vídeo
+app.delete('/api/videos/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        
+        console.log(`🗑️ SOLICITAÇÃO: Excluir vídeo ID: ${id}`);
+        
+        await ensureConnection();
+
+        // Verifica se o vídeo existe
+        const video = await prisma.video.findUnique({
+            where: { id: parseInt(id) }
+        });
+
+        if (!video) {
+            console.log(`❌ Vídeo ${id} não encontrado`);
+            return res.status(404).json({ 
+                success: false,
+                error: 'Vídeo não encontrado' 
+            });
+        }
+
+        // Exclui o vídeo
+        const videoExcluido = await prisma.video.delete({
+            where: { id: parseInt(id) }
+        });
+
+        console.log(`✅ Vídeo excluído: ${videoExcluido.titulo} (ID: ${videoExcluido.id})`);
+
+        res.json({
+            success: true,
+            message: `Vídeo "${videoExcluido.titulo}" excluído com sucesso!`,
+            video: videoExcluido
+        });
+        
+    } catch (error) {
+        console.error('❌ Erro ao excluir vídeo:', error);
+        
+        if (error.code === 'P2025') {
+            return res.status(404).json({ 
+                success: false,
+                error: 'Vídeo não encontrado' 
+            });
+        }
+        
+        res.status(500).json({ 
+            success: false,
+            error: 'Erro ao excluir vídeo',
+            details: error.message 
+        });
+    }
+});
+
 // ✅ ROTA DEBUG PARA VERIFICAR PERSISTÊNCIA
 app.get('/api/debug/persistence/:id', async (req, res) => {
     try {
@@ -554,6 +728,10 @@ app.use('/api/*', (req, res) => {
             'DELETE /api/usuarios/:id',
             'DELETE /api/usuarios (RESET)',
             'POST /api/reset (RESET)',
+            'GET  /api/videos',
+            'POST /api/videos',
+            'PUT  /api/videos/:id',
+            'DELETE /api/videos/:id',
             'GET  /api/debug/persistence/:id'
         ]
     });
@@ -562,11 +740,11 @@ app.use('/api/*', (req, res) => {
 // ✅ ROTA DE FALLBACK GERAL
 app.use('*', (req, res) => {
     res.json({
-        message: '🚀 API Coliseum Backend - PERSISTENCE FIX',
+        message: '🚀 API Coliseum Backend - VIDEOS ADDED',
         note: 'Frontend está em repositório separado',
         frontend_url: 'https://coliseum-ebon.vercel.app',
         api_endpoints: 'Acesse /api/health para status completo',
-        version: '2.0 - Neon Persistence Fix'
+        version: '2.0 - Videos Management'
     });
 });
 
@@ -587,8 +765,10 @@ async function startServer() {
     try {
         await ensureConnection();
         const totalUsuarios = await prisma.usuario.count();
+        const totalVideos = await prisma.video.count();
         console.log('✅ Conectado ao Neon PostgreSQL via Prisma');
         console.log(`👥 Total de usuários no banco: ${totalUsuarios}`);
+        console.log(`🎬 Total de vídeos no banco: ${totalVideos}`);
         
         app.listen(PORT, () => {
             console.log('\n🚀🚀🚀 API COLISEUM NO RENDER! 🚀🚀🚀');
@@ -596,7 +776,8 @@ async function startServer() {
             console.log(`🌐 URL: https://coliseum-api.onrender.com`);
             console.log(`💾 Banco: Neon PostgreSQL`);
             console.log(`👥 Usuários: ${totalUsuarios}`);
-            console.log(`🔧 Versão: 2.0 - PERSISTENCE FIX`);
+            console.log(`🎬 Vídeos: ${totalVideos}`);
+            console.log(`🔧 Versão: 2.0 - VIDEOS MANAGEMENT`);
             console.log(`\n📋 ENDPOINTS:`);
             console.log(`   ❤️  GET  /api/health`);
             console.log(`   🏆 GET  /api/ranking`);
@@ -606,8 +787,12 @@ async function startServer() {
             console.log(`   🗑️  DELETE /api/usuarios/:id`);
             console.log(`   🗑️  DELETE /api/usuarios (RESET)`);
             console.log(`   🔄 POST /api/reset (RESET)`);
+            console.log(`   🎬 GET  /api/videos`);
+            console.log(`   🎬 POST /api/videos`);
+            console.log(`   🎬 PUT  /api/videos/:id`);
+            console.log(`   🎬 DELETE /api/videos/:id`);
             console.log(`   🔍 GET  /api/debug/persistence/:id`);
-            console.log(`\n🎯 BACKEND COM PERSISTÊNCIA GARANTIDA!`);
+            console.log(`\n🎯 BACKEND COM GERENCIAMENTO DE VÍDEOS!`);
         });
         
     } catch (error) {
@@ -634,7 +819,3 @@ process.on('SIGTERM', async () => {
 startServer();
 
 export default app;
-
-
-
-
