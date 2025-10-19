@@ -47,12 +47,14 @@ app.use(async (req, res, next) => {
 });
 
 // ✅ CORS COMPLETO PARA PERMITIR TODOS OS FRONTS
+// ✅ CORS COMPLETO PARA PERMITIR TODOS OS FRONTS
 app.use(cors({
   origin: function (origin, callback) {
     const allowedOrigins = [
       'https://coliseum-ebon.vercel.app',
       'https://coliseum-m71foc1um-icaroass-projects.vercel.app',
       'https://coliseum-peon87g6t-icaroass-projects.vercel.app',
+      'https://coliseum-bigalfocm-icaroass-projects.vercel.app', // ✅ NOVA ORIGEM
       /https:\/\/coliseum-.*\.vercel\.app$/,
       /https:\/\/.*-icaroass-projects\.vercel\.app$/,
       'http://localhost:3000',
@@ -80,7 +82,6 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With']
 }));
-
 // ✅ MIDDLEWARE PARA OPTIONS
 app.options('*', cors());
 
@@ -633,6 +634,7 @@ process.on('SIGTERM', async () => {
 startServer();
 
 export default app;
+
 
 
 
