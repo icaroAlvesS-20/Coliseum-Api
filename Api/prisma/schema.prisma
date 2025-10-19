@@ -23,7 +23,7 @@ model Usuario {
 
 }
 model Video {
-  id        Int    @id @default(autoincrement())
+  id        Int      @id @default(autoincrement())
   titulo    String
   materia   String
   categoria String
