@@ -20,4 +20,18 @@ model Usuario {
   atualizadoEm        DateTime @updatedAt
 
   @@map("usuario")
+
+}
+model Video {
+  id        Int    @id @default(autoincrement())
+  titulo    String
+  materia   String
+  categoria String
+  url       String
+  descricao String?
+  duracao   Int
+  criadoEm  DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  @@map("videos")
 }
