@@ -1,4 +1,4 @@
-// prisma/schema.prisma
+// schema.prisma
 generator client {
   provider = "prisma-client-js"
 }
@@ -10,29 +10,28 @@ datasource db {
 
 model Usuario {
   id                  Int      @id @default(autoincrement())
-  nome                String
-  serie               String
   ra                  String   @unique
+  nome                String
   senha               String
+  serie               String
   pontuacao           Int      @default(0)
   desafiosCompletados Int      @default(0)
   criadoEm            DateTime @default(now())
   atualizadoEm        DateTime @updatedAt
 
-  @@map("usuario")
-
+  @@map("usuarios")
 }
+
 model Video {
-  id        Int      @id @default(autoincrement())
-  titulo    String
-  materia   String
-  categoria String
-  url       String
-  descricao String?
-  duracao   Int
-  criadoEm  DateTime @default(now())
+  id           Int      @id @default(autoincrement())
+  titulo       String
+  materia      String
+  categoria    String
+  url          String
+  descricao    String?
+  duracao      Int
+  criadoEm     DateTime @default(now())
   atualizadoEm DateTime @updatedAt
 
   @@map("videos")
 }
-
