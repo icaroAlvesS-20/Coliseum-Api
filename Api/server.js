@@ -291,7 +291,7 @@ app.post('/api/usuarios', async (req, res) => {
     }
 });
 
-// ✅ PUT /api/usuarios/:id - Atualizar pontuação COM PERSISTÊNCIA GARANTIDA
+
 // ✅ PUT /api/usuarios/:id - Atualizar usuário COMPLETO COM PERSISTÊNCIA GARANTIDA
 app.put('/api/usuarios/:id', async (req, res) => {
     try {
@@ -342,8 +342,8 @@ app.put('/api/usuarios/:id', async (req, res) => {
             console.log(`✅ [CONFIRMADO] Dados COMPLETOS persistidos para ${id}:`, confirmacao);
             return result;
         }, {
-            timeout: 10000, // 10 segundos de timeout
-            maxWait: 5000   // 5 segundos máximo de espera
+            timeout: 10000,
+            maxWait: 5000
         });
 
         console.log(`🎉 [SUCESSO] Usuário ${id} COMPLETAMENTE PERSISTIDO no banco:`, usuarioAtualizado);
@@ -357,7 +357,6 @@ app.put('/api/usuarios/:id', async (req, res) => {
     } catch (error) {
         console.error('❌ [ERRO CRÍTICO] Falha ao persistir usuário COMPLETO ${id}:', error);
         
-        // Tenta reconectar em caso de erro de conexão
         if (error.code === 'P1001' || error.message.includes('Closed') || error.message.includes('connection')) {
             console.log('🔄 Tentando reconexão de emergência...');
             await ensureConnection();
@@ -372,7 +371,6 @@ app.put('/api/usuarios/:id', async (req, res) => {
     }
 });
 
-// ✅ POST /api/desafio-completo
 app.post('/api/desafio-completo', async (req, res) => {
     try {
         const { usuarioId, pontuacaoGanha } = req.body;
@@ -663,4 +661,5 @@ process.on('SIGTERM', async () => {
 startServer();
 
 export default app;
+
 
