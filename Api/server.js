@@ -93,7 +93,7 @@ app.get('/api/health', async (req, res) => {
     }
 });
 
-// ========== ROTAS DE CURSOS (COM FALLBACK) ========== //
+// ========== ROTAS DE CURSOS (COMPLETAS) ========== //
 
 // ✅ GET /api/cursos - COM VERIFICAÇÃO DE TABELA
 app.get('/api/cursos', async (req, res) => {
@@ -177,7 +177,7 @@ app.get('/api/cursos', async (req, res) => {
     }
 });
 
-// ✅ POST /api/cursos - COM VERIFICAÇÃO
+// ✅ POST /api/cursos - CRIAR CURSO
 app.post('/api/cursos', async (req, res) => {
     try {
         const { titulo, descricao, materia, categoria, nivel, duracao, imagem } = req.body;
@@ -228,6 +228,127 @@ app.post('/api/cursos', async (req, res) => {
         res.status(500).json({ 
             success: false,
             error: 'Erro ao criar curso',
+            details: error.message 
+        });
+    }
+});
+
+// ✅ PUT /api/cursos/:id - ATUALIZAR CURSO
+app.put('/api/cursos/:id', async (req, res) => {
+    try {
+        const cursoId = parseInt(req.params.id);
+        const { titulo, descricao, materia, categoria, nivel, duracao, imagem, ativo } = req.body;
+
+        console.log(`✏️ Atualizando curso ID: ${cursoId}`);
+
+        // Verifica se o curso existe
+        const cursoExistente = await prisma.curso.findUnique({
+            where: { id: cursoId }
+        });
+
+        if (!cursoExistente) {
+            return res.status(404).json({
+                success: false,
+                error: 'Curso não encontrado'
+            });
+        }
+
+        const cursoAtualizado = await prisma.curso.update({
+            where: { id: cursoId },
+            data: {
+                titulo: titulo ? titulo.trim() : cursoExistente.titulo,
+                descricao: descricao !== undefined ? descricao.trim() : cursoExistente.descricao,
+                materia: materia ? materia.trim() : cursoExistente.materia,
+                categoria: categoria ? categoria.trim() : cursoExistente.categoria,
+                nivel: nivel ? nivel.trim() : cursoExistente.nivel,
+                duracao: duracao ? parseInt(duracao) : cursoExistente.duracao,
+                imagem: imagem !== undefined ? (imagem ? imagem.trim() : null) : cursoExistente.imagem,
+                ativo: ativo !== undefined ? ativo : cursoExistente.ativo
+            }
+        });
+
+        console.log(`✅ Curso atualizado: ${cursoAtualizado.titulo}`);
+        
+        res.json({
+            success: true,
+            message: 'Curso atualizado com sucesso!',
+            curso: cursoAtualizado
+        });
+
+    } catch (error) {
+        console.error('❌ Erro ao atualizar curso:', error);
+        
+        if (error.code === 'P2025') {
+            return res.status(404).json({
+                success: false,
+                error: 'Curso não encontrado'
+            });
+        }
+        
+        res.status(500).json({ 
+            success: false,
+            error: 'Erro ao atualizar curso',
+            details: error.message 
+        });
+    }
+});
+
+// ✅ DELETE /api/cursos/:id - EXCLUIR CURSO
+app.delete('/api/cursos/:id', async (req, res) => {
+    try {
+        const cursoId = parseInt(req.params.id);
+        
+        console.log(`🗑️ Tentando excluir curso ID: ${cursoId}`);
+
+        // Verifica se o curso existe
+        const cursoExistente = await prisma.curso.findUnique({
+            where: { id: cursoId }
+        });
+
+        if (!cursoExistente) {
+            console.log(`❌ Curso ID ${cursoId} não encontrado`);
+            return res.status(404).json({
+                success: false,
+                error: 'Curso não encontrado'
+            });
+        }
+
+        // Primeiro exclui os progressos associados (se existirem)
+        try {
+            await prisma.progressoCurso.deleteMany({
+                where: { cursoId: cursoId }
+            });
+            console.log(`✅ Progressos do curso ${cursoId} excluídos`);
+        } catch (error) {
+            console.log('ℹ️ Nenhum progresso para excluir ou tabela não existe');
+        }
+
+        // Exclui o curso
+        const cursoExcluido = await prisma.curso.delete({
+            where: { id: cursoId }
+        });
+
+        console.log(`✅ Curso excluído: ${cursoExcluido.titulo}`);
+        
+        res.json({
+            success: true,
+            message: `Curso "${cursoExcluido.titulo}" excluído com sucesso!`,
+            curso: cursoExcluido
+        });
+
+    } catch (error) {
+        console.error('❌ Erro ao excluir curso:', error);
+        
+        if (error.code === 'P2025') {
+            return res.status(404).json({
+                success: false,
+                error: 'Curso não encontrado'
+            });
+        }
+        
+        res.status(500).json({ 
+            success: false,
+            error: 'Erro ao excluir curso',
             details: error.message 
         });
     }
@@ -370,6 +491,73 @@ app.post('/api/usuarios', async (req, res) => {
     }
 });
 
+// ✅ ATUALIZAR USUÁRIO
+app.put('/api/usuarios/:id', async (req, res) => {
+    try {
+        const userId = parseInt(req.params.id);
+        const { nome, ra, serie, pontuacao, desafiosCompletados } = req.body;
+
+        console.log(`✏️ Atualizando usuário ID: ${userId}`);
+
+        const usuarioAtualizado = await prisma.usuario.update({
+            where: { id: userId },
+            data: {
+                nome: nome ? nome.trim() : undefined,
+                ra: ra ? ra.toString().trim() : undefined,
+                serie: serie ? serie.toString().trim() : undefined,
+                pontuacao: pontuacao !== undefined ? parseInt(pontuacao) : undefined,
+                desafiosCompletados: desafiosCompletados !== undefined ? parseInt(desafiosCompletados) : undefined
+            }
+        });
+
+        console.log(`✅ Usuário atualizado: ${usuarioAtualizado.nome}`);
+        
+        res.json({
+            success: true,
+            message: 'Usuário atualizado com sucesso!',
+            usuario: usuarioAtualizado
+        });
+
+    } catch (error) {
+        console.error('❌ Erro ao atualizar usuário:', error);
+        
+        if (error.code === 'P2025') {
+            return res.status(404).json({ error: 'Usuário não encontrado' });
+        }
+        
+        res.status(500).json({ error: 'Erro ao atualizar usuário' });
+    }
+});
+
+// ✅ EXCLUIR USUÁRIO
+app.delete('/api/usuarios/:id', async (req, res) => {
+    try {
+        const userId = parseInt(req.params.id);
+
+        console.log(`🗑️ Excluindo usuário ID: ${userId}`);
+
+        const usuarioExcluido = await prisma.usuario.delete({
+            where: { id: userId }
+        });
+
+        console.log(`✅ Usuário excluído: ${usuarioExcluido.nome}`);
+        
+        res.json({
+            success: true,
+            message: `Usuário "${usuarioExcluido.nome}" excluído com sucesso!`
+        });
+
+    } catch (error) {
+        console.error('❌ Erro ao excluir usuário:', error);
+        
+        if (error.code === 'P2025') {
+            return res.status(404).json({ error: 'Usuário não encontrado' });
+        }
+        
+        res.status(500).json({ error: 'Erro ao excluir usuário' });
+    }
+});
+
 // ✅ VÍDEOS
 app.get('/api/videos', async (req, res) => {
     try {
@@ -409,6 +597,61 @@ app.post('/api/videos', async (req, res) => {
 
     } catch (error) {
         res.status(500).json({ error: 'Erro ao adicionar vídeo' });
+    }
+});
+
+// ✅ ATUALIZAR VÍDEO
+app.put('/api/videos/:id', async (req, res) => {
+    try {
+        const videoId = parseInt(req.params.id);
+        const { titulo, materia, categoria, url, descricao, duracao } = req.body;
+
+        const videoAtualizado = await prisma.video.update({
+            where: { id: videoId },
+            data: {
+                titulo: titulo ? titulo.trim() : undefined,
+                materia: materia ? materia.trim() : undefined,
+                categoria: categoria ? categoria.trim() : undefined,
+                url: url ? url.trim() : undefined,
+                descricao: descricao !== undefined ? descricao.trim() : undefined,
+                duracao: duracao ? parseInt(duracao) : undefined
+            }
+        });
+
+        res.json({
+            success: true,
+            message: 'Vídeo atualizado com sucesso!',
+            video: videoAtualizado
+        });
+
+    } catch (error) {
+        if (error.code === 'P2025') {
+            return res.status(404).json({ error: 'Vídeo não encontrado' });
+        }
+        res.status(500).json({ error: 'Erro ao atualizar vídeo' });
+    }
+});
+
+// ✅ EXCLUIR VÍDEO
+app.delete('/api/videos/:id', async (req, res) => {
+    try {
+        const videoId = parseInt(req.params.id);
+
+        const videoExcluido = await prisma.video.delete({
+            where: { id: videoId }
+        });
+
+        res.json({
+            success: true,
+            message: 'Vídeo excluído com sucesso!',
+            video: videoExcluido
+        });
+
+    } catch (error) {
+        if (error.code === 'P2025') {
+            return res.status(404).json({ error: 'Vídeo não encontrado' });
+        }
+        res.status(500).json({ error: 'Erro ao excluir vídeo' });
     }
 });
 
