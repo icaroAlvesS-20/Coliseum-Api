@@ -5,15 +5,14 @@ import { PrismaClient } from '@prisma/client';
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-// ✅ CONFIGURAÇÃO CORRIGIDA PARA NEON - PERSISTÊNCIA GARANTIDA
+// ✅ CONFIGURAÇÃO CORRIGIDA PARA NEON
 const prisma = new PrismaClient({
   log: ['warn', 'error'],
   errorFormat: 'minimal',
-  // ✅ CONFIGURAÇÕES ESPECÍFICAS PARA NEON
   datasourceUrl: process.env.DATABASE_URL + "?connection_limit=5&pool_timeout=30&connect_timeout=30",
 });
 
-// ✅ MIDDLEWARE DE RECONEXÃO ROBUSTO
+// ✅ MIDDLEWARE DE RECONEXÃO
 let connectionStatus = 'connected';
 
 async function ensureConnection() {
@@ -21,7 +20,6 @@ async function ensureConnection() {
 
   try {
     connectionStatus = 'connecting';
-    // Testa a conexão com query simples
     await prisma.$queryRaw`SELECT 1`;
     connectionStatus = 'connected';
   } catch (error) {
@@ -38,15 +36,7 @@ async function ensureConnection() {
   }
 }
 
-// ✅ VERIFICA CONEXÃO ANTES DE CADA REQUEST IMPORTANTE
-app.use(async (req, res, next) => {
-  if (req.method !== 'GET' || req.path.includes('/api/health')) {
-    await ensureConnection();
-  }
-  next();
-});
-
-// ✅ CORS COMPLETO PARA PERMITIR TODOS OS FRONTS
+// ✅ CORS COMPLETO
 app.use(cors({
   origin: function (origin, callback) {
     const allowedOrigins = [
@@ -82,9 +72,7 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With']
 }));
 
-// ✅ MIDDLEWARE PARA OPTIONS
 app.options('*', cors());
-
 app.use(express.json());
 
 // ========== MIDDLEWARE DE LOG ========== //
@@ -95,7 +83,7 @@ app.use((req, res, next) => {
 
 // ========== ROTAS API ========== //
 
-// ✅ ROTA RAIZ DO BACKEND
+// ✅ ROTA RAIZ
 app.get('/', (req, res) => {
     res.json({
         message: '🚀 API Coliseum Backend - Online',
@@ -119,7 +107,7 @@ app.get('/', (req, res) => {
     });
 });
 
-// ✅ HEALTH CHECK ATUALIZADO
+// ✅ HEALTH CHECK
 app.get('/api/health', async (req, res) => {
     try {
         await ensureConnection();
@@ -322,7 +310,7 @@ app.post('/api/usuarios', async (req, res) => {
     }
 });
 
-// ✅ PUT /api/usuarios/:id - Atualizar usuário COMPLETO
+// ✅ PUT /api/usuarios/:id - Atualizar usuário
 app.put('/api/usuarios/:id', async (req, res) => {
     try {
         const { id } = req.params;
@@ -422,7 +410,6 @@ app.delete('/api/usuarios/:id', async (req, res) => {
 
         await ensureConnection();
 
-        // Verifica se o usuário existe
         const usuario = await prisma.usuario.findUnique({
             where: { id: parseInt(id) }
         });
@@ -435,7 +422,6 @@ app.delete('/api/usuarios/:id', async (req, res) => {
             });
         }
 
-        // Exclui o usuário
         const usuarioExcluido = await prisma.usuario.delete({
             where: { id: parseInt(id) },
             select: {
@@ -605,7 +591,6 @@ app.put('/api/videos/:id', async (req, res) => {
 
         await ensureConnection();
 
-        // Verifica se o vídeo existe
         const videoExistente = await prisma.video.findUnique({
             where: { id: parseInt(id) }
         });
@@ -656,7 +641,6 @@ app.delete('/api/videos/:id', async (req, res) => {
 
         await ensureConnection();
 
-        // Verifica se o vídeo existe
         const video = await prisma.video.findUnique({
             where: { id: parseInt(id) }
         });
@@ -669,7 +653,6 @@ app.delete('/api/videos/:id', async (req, res) => {
             });
         }
 
-        // Exclui o vídeo
         const videoExcluido = await prisma.video.delete({
             where: { id: parseInt(id) }
         });
@@ -702,7 +685,7 @@ app.delete('/api/videos/:id', async (req, res) => {
 
 // ========== ROTAS PARA CURSOS ========== //
 
-// ✅ GET /api/cursos - Listar todos os cursos
+// ✅ GET /api/cursos - Listar todos os cursos (CORRIGIDO)
 app.get('/api/cursos', async (req, res) => {
     try {
         await ensureConnection();
@@ -715,31 +698,32 @@ app.get('/api/cursos', async (req, res) => {
                         aulas: true
                     }
                 },
-                _count: {
-                    select: {
-                        progressos: true
-                    }
-                }
+                progressos: true // Adicionado para contar alunos
             },
             orderBy: { materia: 'asc' }
         });
 
-        // Formatar resposta com dados calculados
-        const cursosFormatados = cursos.map(curso => ({
-            id: curso.id,
-            titulo: curso.titulo,
-            descricao: curso.descricao,
-            materia: curso.materia,
-            categoria: curso.categoria,
-            nivel: curso.nivel,
-            duracao: curso.duracao,
-            imagem: curso.imagem,
-            modulos: curso.modulos.length,
-            alunos: curso._count.progressos,
-            avaliacao: 4.5, // Placeholder - pode ser calculado depois
-            ativo: curso.ativo,
-            criadoEm: curso.criadoEm
-        }));
+        // Formatar resposta corretamente para o frontend
+        const cursosFormatados = cursos.map(curso => {
+            const totalAlunos = curso.progressos ? curso.progressos.length : 0;
+            const totalModulos = curso.modulos ? curso.modulos.length : 0;
+            
+            return {
+                id: curso.id,
+                titulo: curso.titulo,
+                descricao: curso.descricao,
+                materia: curso.materia,
+                categoria: curso.categoria,
+                nivel: curso.nivel,
+                duracao: curso.duracao,
+                imagem: curso.imagem,
+                modulos: totalModulos,
+                alunos: totalAlunos,
+                avaliacao: 4.5, // Placeholder
+                ativo: curso.ativo,
+                criadoEm: curso.criadoEm
+            };
+        });
 
         console.log(`✅ Cursos carregados: ${cursosFormatados.length} cursos`);
         res.json(cursosFormatados);
@@ -810,7 +794,6 @@ app.put('/api/cursos/:id', async (req, res) => {
 
         await ensureConnection();
 
-        // Verifica se o curso existe
         const cursoExistente = await prisma.curso.findUnique({
             where: { id: parseInt(id) }
         });
@@ -863,7 +846,6 @@ app.delete('/api/cursos/:id', async (req, res) => {
 
         await ensureConnection();
 
-        // Verifica se o curso existe
         const curso = await prisma.curso.findUnique({
             where: { id: parseInt(id) }
         });
@@ -876,7 +858,6 @@ app.delete('/api/cursos/:id', async (req, res) => {
             });
         }
 
-        // Exclui o curso (cascata exclui módulos, aulas e progressos)
         const cursoExcluido = await prisma.curso.delete({
             where: { id: parseInt(id) }
         });
@@ -925,11 +906,7 @@ app.get('/api/cursos/:id', async (req, res) => {
                     },
                     orderBy: { ordem: 'asc' }
                 },
-                _count: {
-                    select: {
-                        progressos: true
-                    }
-                }
+                progressos: true
             }
         });
 
@@ -957,7 +934,7 @@ app.get('/api/cursos/:id', async (req, res) => {
 
 // ========== ROTAS PARA PROGRESSO DE CURSOS ========== //
 
-// ✅ GET /api/progresso/:usuarioId - Buscar progresso do usuário
+// ✅ GET /api/progresso/:usuarioId - Buscar progresso do usuário (CORRIGIDO)
 app.get('/api/progresso/:usuarioId', async (req, res) => {
     try {
         const { usuarioId } = req.params;
@@ -967,7 +944,15 @@ app.get('/api/progresso/:usuarioId', async (req, res) => {
         const progressos = await prisma.progressoCurso.findMany({
             where: { usuarioId: parseInt(usuarioId) },
             include: {
-                curso: true
+                curso: {
+                    include: {
+                        modulos: {
+                            include: {
+                                aulas: true
+                            }
+                        }
+                    }
+                }
             }
         });
 
@@ -1000,7 +985,6 @@ app.post('/api/progresso', async (req, res) => {
 
         await ensureConnection();
 
-        // Usa upsert para criar ou atualizar o progresso
         const progressoAtualizado = await prisma.progressoCurso.upsert({
             where: {
                 usuarioId_cursoId: {
@@ -1396,4 +1380,3 @@ process.on('SIGTERM', async () => {
 startServer();
 
 export default app;
-
