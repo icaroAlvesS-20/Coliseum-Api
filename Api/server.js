@@ -1294,43 +1294,51 @@ async function startServer() {
         await ensureConnection();
 
         console.log('🔧 Verificando e criando tabelas...');
+        
+        // VERIFICAÇÃO ESPECÍFICA PARA TABELAS DE CURSOS
         try {
-            await prisma.usuario.count();
-            console.log('✅ Tabelas já existem no banco');
+            // Tenta contar cursos - se falhar, as tabelas não existem
+            await prisma.curso.count();
+            console.log('✅ Tabelas de cursos já existem no banco');
         } catch (error) {
-            if (error.code === 'P2021') {
-                console.log('📦 Criando tabelas no banco...');
-                const { execSync } = await import('child_process');
+            if (error.code === 'P2021' || error.message.includes('does not exist')) {
+                console.log('📦 Tabelas de cursos NÃO existem. Criando agora...');
+                
                 try {
-                    execSync('npx prisma db push --accept-data-loss', { stdio: 'inherit' });
-                    console.log('✅ Tabelas criadas com sucesso!');
+                    // Força a criação das tabelas
+                    const { execSync } = await import('child_process');
                     
-                    // Adiciona alguns cursos de exemplo após criar as tabelas
+                    console.log('🚀 Executando Prisma DB Push para criar tabelas...');
+                    execSync('npx prisma db push --force-reset --accept-data-loss', { 
+                        stdio: 'inherit' 
+                    });
+                    
+                    console.log('✅ Todas as tabelas criadas com sucesso!');
+                    
+                    // Adiciona cursos de exemplo após criar as tabelas
                     await adicionarCursosExemplo();
+                    
                 } catch (pushError) {
-                    console.error('❌ Erro ao criar tabelas:', pushError);
-                    throw pushError;
+                    console.error('❌ Erro crítico ao criar tabelas:', pushError);
+                    console.log('🔄 Tentando abordagem alternativa...');
+                    
+                    // Abordagem alternativa: criar manualmente
+                    try {
+                        await criarTabelasManualmente();
+                    } catch (manualError) {
+                        console.error('❌ Falha total na criação de tabelas:', manualError);
+                        throw manualError;
+                    }
                 }
             } else {
                 throw error;
             }
         }
 
-        const totalUsuarios = await prisma.usuario.count();
-        let totalVideos = 0;
-        let totalCursos = 0;
-
-        try {
-            totalVideos = await prisma.video.count();
-        } catch (error) {
-            console.log('⚠️ Tabela de vídeos ainda não disponível');
-        }
-
-        try {
-            totalCursos = await prisma.curso.count();
-        } catch (error) {
-            console.log('⚠️ Tabela de cursos ainda não disponível');
-        }
+        // Agora conta os registros com tratamento de erro
+        const totalUsuarios = await prisma.usuario.count().catch(() => 0);
+        const totalVideos = await prisma.video.count().catch(() => 0);
+        const totalCursos = await prisma.curso.count().catch(() => 0);
 
         console.log('✅ Conectado ao Neon PostgreSQL via Prisma');
         console.log(`👥 Total de usuários no banco: ${totalUsuarios}`);
@@ -1362,21 +1370,88 @@ async function startServer() {
     }
 }
 
-// Graceful shutdown
-process.on('SIGINT', async () => {
-    console.log('\n🛑 Desligando servidor...');
-    await prisma.$disconnect();
-    console.log('✅ Conexão com o banco fechada');
-    process.exit(0);
-});
+// Função alternativa para criar tabelas manualmente se o DB Push falhar
+async function criarTabelasManualmente() {
+    console.log('🛠️ Criando tabelas manualmente...');
+    
+    // Criação manual das tabelas via SQL raw
+    try {
+        await prisma.$executeRaw`
+            CREATE TABLE IF NOT EXISTS cursos (
+                id SERIAL PRIMARY KEY,
+                titulo VARCHAR(255) NOT NULL,
+                descricao TEXT,
+                materia VARCHAR(100) NOT NULL,
+                categoria VARCHAR(100) NOT NULL,
+                nivel VARCHAR(50) NOT NULL,
+                duracao INTEGER NOT NULL,
+                imagem VARCHAR(500),
+                ativo BOOLEAN DEFAULT true,
+                "criadoEm" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                "atualizadoEm" TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `;
+        console.log('✅ Tabela cursos criada');
 
-process.on('SIGTERM', async () => {
-    console.log('\n🛑 Desligando servidor (SIGTERM)...');
-    await prisma.$disconnect();
-    console.log('✅ Conexão com o banco fechada');
-    process.exit(0);
-});
+        await prisma.$executeRaw`
+            CREATE TABLE IF NOT EXISTS modulos (
+                id SERIAL PRIMARY KEY,
+                titulo VARCHAR(255) NOT NULL,
+                descricao TEXT,
+                ordem INTEGER NOT NULL,
+                duracao INTEGER NOT NULL,
+                "cursoId" INTEGER REFERENCES cursos(id) ON DELETE CASCADE,
+                "criadoEm" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                "atualizadoEm" TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `;
+        console.log('✅ Tabela modulos criada');
+
+        await prisma.$executeRaw`
+            CREATE TABLE IF NOT EXISTS aulas (
+                id SERIAL PRIMARY KEY,
+                titulo VARCHAR(255) NOT NULL,
+                descricao TEXT,
+                tipo VARCHAR(50) NOT NULL,
+                conteudo TEXT,
+                duracao INTEGER NOT NULL,
+                ordem INTEGER NOT NULL,
+                "moduloId" INTEGER REFERENCES modulos(id) ON DELETE CASCADE,
+                "criadoEm" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                "atualizadoEm" TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `;
+        console.log('✅ Tabela aulas criada');
+
+        await prisma.$executeRaw`
+            CREATE TABLE IF NOT EXISTS progresso_cursos (
+                id SERIAL PRIMARY KEY,
+                "usuarioId" INTEGER NOT NULL,
+                "cursoId" INTEGER NOT NULL,
+                progresso FLOAT DEFAULT 0,
+                concluido BOOLEAN DEFAULT false,
+                "ultimaAula" INTEGER,
+                "criadoEm" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                "atualizadoEm" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE("usuarioId", "cursoId"),
+                FOREIGN KEY ("usuarioId") REFERENCES usuarios(id) ON DELETE CASCADE,
+                FOREIGN KEY ("cursoId") REFERENCES cursos(id) ON DELETE CASCADE
+            )
+        `;
+        console.log('✅ Tabela progresso_cursos criada');
+
+        console.log('🎉 Todas as tabelas criadas manualmente com sucesso!');
+        
+        // Adiciona cursos de exemplo
+        await adicionarCursosExemplo();
+        
+    } catch (error) {
+        console.error('❌ Erro na criação manual de tabelas:', error);
+        throw error;
+    }
+}
 
 startServer();
 
 export default app;
+
