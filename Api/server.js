@@ -298,7 +298,7 @@ app.delete('/api/cursos/:id', async (req, res) => {
     try {
         const cursoId = parseInt(req.params.id);
         
-        console.log(`🗑️ Tentando excluir curso ID: ${cursoId}`);
+        console.log(`🗑️ Excluindo curso ID: ${cursoId}`);
 
         // Verifica se o curso existe
         const cursoExistente = await prisma.curso.findUnique({
@@ -306,34 +306,22 @@ app.delete('/api/cursos/:id', async (req, res) => {
         });
 
         if (!cursoExistente) {
-            console.log(`❌ Curso ID ${cursoId} não encontrado`);
             return res.status(404).json({
                 success: false,
                 error: 'Curso não encontrado'
             });
         }
 
-        // Primeiro exclui os progressos associados (se existirem)
-        try {
-            await prisma.progressoCurso.deleteMany({
-                where: { cursoId: cursoId }
-            });
-            console.log(`✅ Progressos do curso ${cursoId} excluídos`);
-        } catch (error) {
-            console.log('ℹ️ Nenhum progresso para excluir ou tabela não existe');
-        }
-
         // Exclui o curso
-        const cursoExcluido = await prisma.curso.delete({
+        await prisma.curso.delete({
             where: { id: cursoId }
         });
 
-        console.log(`✅ Curso excluído: ${cursoExcluido.titulo}`);
+        console.log(`✅ Curso excluído: ${cursoExistente.titulo}`);
         
         res.json({
             success: true,
-            message: `Curso "${cursoExcluido.titulo}" excluído com sucesso!`,
-            curso: cursoExcluido
+            message: `Curso "${cursoExistente.titulo}" excluído com sucesso!`
         });
 
     } catch (error) {
@@ -353,7 +341,6 @@ app.delete('/api/cursos/:id', async (req, res) => {
         });
     }
 });
-
 // ✅ ROTAS DE PROGRESSO (SIMPLIFICADAS)
 app.post('/api/progresso', async (req, res) => {
     try {
@@ -836,3 +823,4 @@ process.on('SIGTERM', async () => {
 startServer();
 
 export default app;
+
