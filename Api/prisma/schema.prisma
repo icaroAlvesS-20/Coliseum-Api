@@ -44,7 +44,7 @@ model Curso {
   titulo      String
   descricao   String?
   materia     String    // matematica, csn, csh, portugues
-  categoria   String    // basico, intermediario, avancado, revisao, etc.
+  categoria   String    // algebra, geometria, quimica, fisica, historia, geografia, gramatica, interpretacao
   nivel       String    // fundamental, medio, vestibular
   duracao     Int       // Duração total em horas
   imagem      String?
