@@ -9,50 +9,48 @@ datasource db {
 }
 
 model Usuario {
-  id                  Int      @id @default(autoincrement())
-  ra                  String   @unique
+  id                  Int                 @id @default(autoincrement())
+  ra                  String              @unique
   nome                String
   senha               String
   serie               String
-  pontuacao           Int      @default(0)
-  desafiosCompletados Int      @default(0)
-  criadoEm            DateTime @default(now())
-  atualizadoEm        DateTime @updatedAt
+  pontuacao           Int                 @default(0)
+  desafiosCompletados Int                 @default(0)
+  criadoEm            DateTime            @default(now())
+  atualizadoEm        DateTime            @default(now())
 
-  // Relações
-  progressoCursos     ProgressoCurso[]
+  progressosCursos    ProgressoCurso[]
+  progressosAulas     ProgressoAula[]
 
   @@map("usuarios")
 }
 
 model Video {
-  id           Int      @id @default(autoincrement())
-  titulo       String
-  materia      String   // matematica, csn, csh, portugues
-  categoria    String
-  url          String
-  descricao    String?
-  duracao      Int
-  criadoEm     DateTime @default(now())
-  atualizadoEm DateTime @updatedAt
+  id        Int      @id @default(autoincrement())
+  titulo    String
+  materia   String
+  categoria String
+  url       String
+  descricao String?
+  duracao   Int
+  criadoEm  DateTime @default(now())
 
   @@map("videos")
 }
 
 model Curso {
-  id          Int       @id @default(autoincrement())
+  id          Int               @id @default(autoincrement())
   titulo      String
   descricao   String?
-  materia     String    // matematica, csn, csh, portugues
-  categoria   String    // algebra, geometria, quimica, fisica, historia, geografia, gramatica, interpretacao
-  nivel       String    // fundamental, medio, vestibular
-  duracao     Int       // Duração total em horas
+  materia     String
+  categoria   String
+  nivel       String
+  duracao     Int
   imagem      String?
-  ativo       Boolean   @default(true)
-  criadoEm    DateTime  @default(now())
-  atualizadoEm DateTime @updatedAt
+  ativo       Boolean           @default(true)
+  criadoEm    DateTime          @default(now())
+  atualizadoEm DateTime         @default(now())
 
-  // Relações
   modulos     Modulo[]
   progressos  ProgressoCurso[]
 
@@ -63,13 +61,10 @@ model Modulo {
   id          Int      @id @default(autoincrement())
   titulo      String
   descricao   String?
-  ordem       Int      // Ordem do módulo no curso
-  duracao     Int      // Duração em minutos
+  ordem       Int
   cursoId     Int
   criadoEm    DateTime @default(now())
-  atualizadoEm DateTime @updatedAt
 
-  // Relações
   curso       Curso    @relation(fields: [cursoId], references: [id], onDelete: Cascade)
   aulas       Aula[]
 
@@ -77,38 +72,51 @@ model Modulo {
 }
 
 model Aula {
-  id          Int      @id @default(autoincrement())
+  id          Int               @id @default(autoincrement())
   titulo      String
   descricao   String?
-  tipo        String   // video, texto, quiz, exercicio
-  conteudo    String?  // URL do vídeo, texto da aula, etc.
-  duracao     Int      // Duração em minutos
-  ordem       Int      // Ordem da aula no módulo
+  conteudo    String?           // HTML content ou markdown
+  videoUrl    String?           // URL do vídeo
+  duracao     Int               // em minutos
+  ordem       Int
   moduloId    Int
-  criadoEm    DateTime @default(now())
-  atualizadoEm DateTime @updatedAt
+  criadoEm    DateTime          @default(now())
 
-  // Relações
-  modulo      Modulo   @relation(fields: [moduloId], references: [id], onDelete: Cascade)
+  modulo      Modulo            @relation(fields: [moduloId], references: [id], onDelete: Cascade)
+  progressos  ProgressoAula[]
 
   @@map("aulas")
 }
 
 model ProgressoCurso {
   id          Int       @id @default(autoincrement())
+  progresso   Float     @default(0)  // 0-100
+  concluido   Boolean   @default(false)
+  ultimaAula  Int?
   usuarioId   Int
   cursoId     Int
-  progresso   Float     @default(0) // Percentual de 0 a 100
-  concluido   Boolean   @default(false)
-  ultimaAula  Int?      // ID da última aula acessada
   criadoEm    DateTime  @default(now())
-  atualizadoEm DateTime @updatedAt
+  atualizadoEm DateTime @default(now())
 
-  // Relações
   usuario     Usuario   @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
   curso       Curso     @relation(fields: [cursoId], references: [id], onDelete: Cascade)
 
   @@unique([usuarioId, cursoId])
-
   @@map("progresso_cursos")
+}
+
+model ProgressoAula {
+  id              Int       @id @default(autoincrement())
+  concluida       Boolean   @default(false)
+  dataConclusao   DateTime?
+  usuarioId       Int
+  aulaId          Int
+  cursoId         Int
+  criadoEm        DateTime  @default(now())
+
+  usuario         Usuario   @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  aula            Aula      @relation(fields: [aulaId], references: [id], onDelete: Cascade)
+
+  @@unique([usuarioId, aulaId])
+  @@map("progresso_aulas")
 }
