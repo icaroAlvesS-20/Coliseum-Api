@@ -1,4 +1,4 @@
-// server.js - ATUALIZADO E CORRIGIDO
+// server.js - CORRIGIDO E TESTADO
 import express from 'express';
 import cors from 'cors';
 import { PrismaClient } from '@prisma/client';
@@ -37,7 +37,7 @@ app.get('/', (req, res) => {
     });
 });
 
-// ✅ HEALTH CHECK MELHORADO
+// ✅ HEALTH CHECK
 app.get('/api/health', async (req, res) => {
     try {
         await prisma.$queryRaw`SELECT 1`;
@@ -45,29 +45,22 @@ app.get('/api/health', async (req, res) => {
         const totalUsuarios = await prisma.usuario.count().catch(() => 0);
         const totalVideos = await prisma.video.count().catch(() => 0);
         const totalCursos = await prisma.curso.count().catch(() => 0);
-        const totalAulas = await prisma.aula.count().catch(() => 0);
 
         res.json({ 
             status: 'online',
-            database: 'connected',
             totalUsuarios,
             totalVideos,
             totalCursos,
-            totalAulas,
             timestamp: new Date().toISOString()
         });
     } catch (error) {
-        res.status(500).json({ 
-            status: 'error',
-            database: 'disconnected',
-            error: 'Database error' 
-        });
+        res.status(500).json({ error: 'Database error' });
     }
 });
 
 // ========== SISTEMA DE CURSOS - CORRIGIDO ========== //
 
-// ✅ GET /api/cursos - LISTAR TODOS OS CURSOS (CORRIGIDO)
+// ✅ GET /api/cursos - LISTAR TODOS OS CURSOS
 app.get('/api/cursos', async (req, res) => {
     try {
         console.log('📚 Buscando todos os cursos...');
@@ -90,19 +83,7 @@ app.get('/api/cursos', async (req, res) => {
         });
 
         console.log(`✅ ${cursos.length} cursos carregados`);
-        
-        // Formatar resposta para garantir compatibilidade
-        const cursosFormatados = cursos.map(curso => ({
-            id: curso.id,
-            titulo: curso.titulo,
-            descricao: curso.descricao,
-            imagem: curso.imagem,
-            ativo: curso.ativo,
-            criadoEm: curso.criadoEm,
-            modulos: curso.modulos || []
-        }));
-
-        res.json(cursosFormatados);
+        res.json(cursos);
 
     } catch (error) {
         console.error('❌ Erro ao buscar cursos:', error);
@@ -113,7 +94,7 @@ app.get('/api/cursos', async (req, res) => {
     }
 });
 
-// ✅ GET /api/cursos/:id - CURSO ESPECÍFICO (CORRIGIDO)
+// ✅ GET /api/cursos/:id - CURSO ESPECÍFICO (CORREÇÃO CRÍTICA)
 app.get('/api/cursos/:id', async (req, res) => {
     try {
         const cursoId = parseInt(req.params.id);
@@ -125,22 +106,14 @@ app.get('/api/cursos/:id', async (req, res) => {
 
         const curso = await prisma.curso.findUnique({
             where: { 
-                id: cursoId,
-                ativo: true 
+                id: cursoId
             },
             include: {
                 modulos: {
                     include: {
                         aulas: {
                             where: { ativo: true },
-                            orderBy: { ordem: 'asc' },
-                            include: {
-                                progressos: {
-                                    where: { 
-                                        usuarioId: req.query.usuarioId ? parseInt(req.query.usuarioId) : undefined 
-                                    }
-                                }
-                            }
+                            orderBy: { ordem: 'asc' }
                         }
                     },
                     where: { ativo: true },
@@ -150,7 +123,7 @@ app.get('/api/cursos/:id', async (req, res) => {
         });
 
         if (!curso) {
-            console.log(`❌ Curso ${cursoId} não encontrado ou inativo`);
+            console.log(`❌ Curso ${cursoId} não encontrado`);
             return res.status(404).json({ 
                 error: 'Curso não encontrado',
                 cursoId: cursoId
@@ -158,14 +131,7 @@ app.get('/api/cursos/:id', async (req, res) => {
         }
 
         console.log(`✅ Curso encontrado: ${curso.titulo} com ${curso.modulos?.length || 0} módulos`);
-        
-        // Formatar resposta
-        const cursoFormatado = {
-            ...curso,
-            modulos: curso.modulos || []
-        };
-
-        res.json(cursoFormatado);
+        res.json(curso);
 
     } catch (error) {
         console.error('❌ Erro ao buscar curso:', error);
@@ -176,10 +142,10 @@ app.get('/api/cursos/:id', async (req, res) => {
     }
 });
 
-// ✅ GET /api/cursos/:id/modulos - MÓDULOS DO CURSO (CORRIGIDO)
-app.get('/api/cursos/:cursoId/modulos', async (req, res) => {
+// ✅ GET /api/cursos/:id/modulos - MÓDULOS DO CURSO (CORREÇÃO CRÍTICA)
+app.get('/api/cursos/:id/modulos', async (req, res) => {
     try {
-        const cursoId = parseInt(req.params.cursoId);
+        const cursoId = parseInt(req.params.id);
         const usuarioId = req.query.usuarioId ? parseInt(req.query.usuarioId) : null;
         
         console.log(`📂 Buscando módulos do curso ${cursoId}, usuário: ${usuarioId}`);
@@ -189,12 +155,8 @@ app.get('/api/cursos/:cursoId/modulos', async (req, res) => {
         }
 
         // Verificar se o curso existe
-        const cursoExiste = await prisma.curso.findFirst({
-            where: { 
-                id: cursoId,
-                ativo: true 
-            },
-            select: { id: true }
+        const cursoExiste = await prisma.curso.findUnique({
+            where: { id: cursoId }
         });
 
         if (!cursoExiste) {
@@ -225,7 +187,7 @@ app.get('/api/cursos/:cursoId/modulos', async (req, res) => {
 
         console.log(`✅ ${modulos.length} módulos carregados com ${modulos.reduce((acc, mod) => acc + mod.aulas.length, 0)} aulas`);
         
-        // Se não há módulos, retornar array vazio em vez de erro
+        // Retornar array vazio se não há módulos
         res.json(modulos || []);
 
     } catch (error) {
@@ -238,29 +200,23 @@ app.get('/api/cursos/:cursoId/modulos', async (req, res) => {
 });
 
 // ✅ ROTA ALTERNATIVA PARA COMPATIBILIDADE
-app.get('/api/cursos/:id/modulos', async (req, res) => {
-    // Redirecionar para a rota correta
-    const cursoId = req.params.id;
-    console.log(`🔄 Redirecionando rota antiga para nova: /api/cursos/${cursoId}/modulos`);
-    
-    // Manter os query parameters
+app.get('/api/cursos/:cursoId/modulos', async (req, res) => {
+    // Redirecionar para a rota padrão
+    const cursoId = req.params.cursoId;
     const queryParams = new URLSearchParams(req.query).toString();
     const redirectUrl = `/api/cursos/${cursoId}/modulos${queryParams ? '?' + queryParams : ''}`;
     
+    console.log(`🔄 Redirecionando: ${req.originalUrl} -> ${redirectUrl}`);
     res.redirect(307, redirectUrl);
 });
 
-// ✅ GET /api/aulas/:id - DETALHES DA AULA (CORRIGIDO)
+// ✅ GET /api/aulas/:id - DETALHES DA AULA
 app.get('/api/aulas/:id', async (req, res) => {
     try {
         const aulaId = parseInt(req.params.id);
         const usuarioId = req.query.usuarioId ? parseInt(req.query.usuarioId) : null;
         
         console.log(`🎓 Buscando aula ${aulaId}, usuário: ${usuarioId}`);
-
-        if (isNaN(aulaId)) {
-            return res.status(400).json({ error: 'ID da aula inválido' });
-        }
 
         const aula = await prisma.aula.findUnique({
             where: { 
@@ -280,46 +236,25 @@ app.get('/api/aulas/:id', async (req, res) => {
         });
 
         if (!aula) {
-            return res.status(404).json({ 
-                error: 'Aula não encontrada',
-                aulaId: aulaId
-            });
+            return res.status(404).json({ error: 'Aula não encontrada' });
         }
 
         res.json(aula);
 
     } catch (error) {
         console.error('❌ Erro ao buscar aula:', error);
-        res.status(500).json({ 
-            error: 'Erro ao carregar aula',
-            details: error.message 
-        });
+        res.status(500).json({ error: 'Erro ao carregar aula' });
     }
 });
 
-// ✅ POST /api/progresso/aula - MARCAR AULA COMO CONCLUÍDA (CORRIGIDO)
+// ✅ POST /api/progresso/aula - MARCAR AULA COMO CONCLUÍDA
 app.post('/api/progresso/aula', async (req, res) => {
     try {
         const { usuarioId, aulaId, cursoId } = req.body;
         console.log(`📊 Registrando progresso - Usuário: ${usuarioId}, Aula: ${aulaId}, Curso: ${cursoId}`);
 
         if (!usuarioId || !aulaId || !cursoId) {
-            return res.status(400).json({ 
-                error: 'Dados incompletos',
-                required: ['usuarioId', 'aulaId', 'cursoId']
-            });
-        }
-
-        // Verificar se a aula existe
-        const aulaExiste = await prisma.aula.findFirst({
-            where: { 
-                id: aulaId,
-                ativo: true 
-            }
-        });
-
-        if (!aulaExiste) {
-            return res.status(404).json({ error: 'Aula não encontrada' });
+            return res.status(400).json({ error: 'Dados incompletos' });
         }
 
         // Marca aula como concluída
@@ -375,16 +310,14 @@ app.post('/api/progresso/aula', async (req, res) => {
             update: {
                 progresso: progressoCurso,
                 concluido: progressoCurso >= 100,
-                ultimaAula: aulaId,
-                atualizadoEm: new Date()
+                ultimaAula: aulaId
             },
             create: {
                 usuarioId: usuarioId,
                 cursoId: cursoId,
                 progresso: progressoCurso,
                 concluido: progressoCurso >= 100,
-                ultimaAula: aulaId,
-                atualizadoEm: new Date()
+                ultimaAula: aulaId
             }
         });
 
@@ -408,66 +341,7 @@ app.post('/api/progresso/aula', async (req, res) => {
     }
 });
 
-// ========== NOVAS ROTAS UTILITÁRIAS ========== //
-
-// ✅ GET /api/status - STATUS COMPLETO DA API
-app.get('/api/status', async (req, res) => {
-    try {
-        const dbStatus = await prisma.$queryRaw`SELECT 1`.then(() => 'connected').catch(() => 'disconnected');
-        
-        const stats = await Promise.all([
-            prisma.curso.count().catch(() => 0),
-            prisma.modulo.count().catch(() => 0),
-            prisma.aula.count().catch(() => 0),
-            prisma.usuario.count().catch(() => 0)
-        ]);
-
-        res.json({
-            api: 'online',
-            database: dbStatus,
-            timestamp: new Date().toISOString(),
-            statistics: {
-                cursos: stats[0],
-                modulos: stats[1],
-                aulas: stats[2],
-                usuarios: stats[3]
-            },
-            endpoints: {
-                cursos: '/api/cursos',
-                cursoDetalhes: '/api/cursos/:id', 
-                modulos: '/api/cursos/:cursoId/modulos',
-                aulas: '/api/aulas/:id',
-                progresso: '/api/progresso/aula'
-            }
-        });
-
-    } catch (error) {
-        res.status(500).json({ 
-            api: 'error',
-            error: error.message 
-        });
-    }
-});
-
-// ✅ ROTA DE FALLBACK PARA ERROS 404
-app.use('/api/*', (req, res) => {
-    console.log(`❌ Rota não encontrada: ${req.method} ${req.originalUrl}`);
-    res.status(404).json({
-        error: 'Endpoint não encontrado',
-        path: req.originalUrl,
-        availableEndpoints: [
-            'GET /api/cursos',
-            'GET /api/cursos/:id',
-            'GET /api/cursos/:cursoId/modulos',
-            'GET /api/aulas/:id',
-            'POST /api/progresso/aula',
-            'GET /api/health',
-            'GET /api/status'
-        ]
-    });
-});
-
-// ========== ROTAS EXISTENTES (MANTIDAS) ========== //
+// ========== ROTAS EXISTENTES ========== //
 
 // ✅ RANKING
 app.get('/api/ranking', async (req, res) => {
@@ -580,6 +454,53 @@ app.post('/api/videos', async (req, res) => {
     }
 });
 
+// ========== ROTA DE DEBUG ========== //
+
+// ✅ ROTA PARA VERIFICAR CURSO 12 ESPECIFICAMENTE
+app.get('/api/debug/curso-12', async (req, res) => {
+    try {
+        console.log('🔍 Debug: Verificando curso ID 12...');
+        
+        const curso = await prisma.curso.findUnique({
+            where: { id: 12 },
+            include: {
+                modulos: {
+                    include: {
+                        aulas: true
+                    }
+                }
+            }
+        });
+
+        if (!curso) {
+            return res.json({ 
+                exists: false,
+                message: 'Curso 12 não existe no banco de dados'
+            });
+        }
+
+        res.json({
+            exists: true,
+            curso: {
+                id: curso.id,
+                titulo: curso.titulo,
+                ativo: curso.ativo,
+                totalModulos: curso.modulos.length,
+                totalAulas: curso.modulos.reduce((acc, mod) => acc + mod.aulas.length, 0)
+            },
+            modulos: curso.modulos.map(mod => ({
+                id: mod.id,
+                titulo: mod.titulo,
+                ativo: mod.ativo,
+                aulas: mod.aulas.length
+            }))
+        });
+
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // ========== INICIALIZAÇÃO ========== //
 
 async function startServer() {
@@ -591,10 +512,13 @@ async function startServer() {
         
         app.listen(PORT, () => {
             console.log(`\n📍 Servidor rodando na porta ${PORT}`);
-            console.log(`🌐 URL: http://localhost:${PORT}`);
-            console.log(`🎯 Rotas de cursos: ✅ ATIVAS`);
-            console.log(`📊 Health check: http://localhost:${PORT}/api/health`);
-            console.log(`📈 Status completo: http://localhost:${PORT}/api/status`);
+            console.log(`🌐 URL: https://coliseum-api.onrender.com`);
+            console.log(`\n🎯 ENDPOINTS PRINCIPAIS:`);
+            console.log(`✅  GET /api/cursos`);
+            console.log(`✅  GET /api/cursos/:id`);
+            console.log(`✅  GET /api/cursos/:id/modulos`);
+            console.log(`✅  GET /api/health`);
+            console.log(`🔍  GET /api/debug/curso-12`);
         });
 
     } catch (error) {
