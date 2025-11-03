@@ -1,4 +1,4 @@
-// schema.prisma
+// schema.prisma - ATUALIZADO
 generator client {
   provider = "prisma-client-js"
 }
@@ -61,7 +61,7 @@ model Modulo {
   id          Int      @id @default(autoincrement())
   titulo      String
   descricao   String?
-  ordem       Int
+  ordem       Int      @default(1)
   cursoId     Int
   criadoEm    DateTime @default(now())
 
@@ -77,8 +77,8 @@ model Aula {
   descricao   String?
   conteudo    String?           // HTML content ou markdown
   videoUrl    String?           // URL do vídeo
-  duracao     Int               // em minutos
-  ordem       Int
+  duracao     Int               @default(15) // em minutos
+  ordem       Int               @default(1)
   moduloId    Int
   criadoEm    DateTime          @default(now())
 
