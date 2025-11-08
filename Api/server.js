@@ -69,9 +69,11 @@ app.get('/api/cursos', async (req, res) => {
                 modulos: {
                     include: {
                         aulas: {
+                            // ❌ REMOVA: where: { ativo: true },
                             orderBy: { ordem: 'asc' }
                         }
                     },
+                    // ❌ REMOVA: where: { ativo: true },
                     orderBy: { ordem: 'asc' }
                 }
             },
@@ -108,11 +110,11 @@ app.get('/api/cursos/:id', async (req, res) => {
                 modulos: {
                     include: {
                         aulas: {
-                            where: { ativo: true },
+                            // ❌ REMOVA: where: { ativo: true },
                             orderBy: { ordem: 'asc' }
                         }
                     },
-                    where: { ativo: true },
+                    // ❌ REMOVA: where: { ativo: true },
                     orderBy: { ordem: 'asc' }
                 }
             }
@@ -137,7 +139,6 @@ app.get('/api/cursos/:id', async (req, res) => {
         });
     }
 });
-
 // ✅ POST /api/cursos - CRIAR NOVO CURSO
 app.post('/api/cursos', async (req, res) => {
     try {
@@ -893,4 +894,5 @@ process.on('SIGINT', async () => {
 startServer();
 
 export default app;
+
 
