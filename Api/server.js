@@ -59,23 +59,19 @@ app.get('/api/health', async (req, res) => {
 });
 
 // ========== SISTEMA DE CURSOS - CORRIGIDO ========== //
-
-// ✅ GET /api/cursos - LISTAR TODOS OS CURSOS
 app.get('/api/cursos', async (req, res) => {
     try {
         console.log('📚 Buscando todos os cursos...');
 
         const cursos = await prisma.curso.findMany({
-            where: { ativo: true },
+            where: { ativo: true }, // ✅ Mantém apenas onde o campo existe
             include: {
                 modulos: {
                     include: {
                         aulas: {
-                            where: { ativo: true },
                             orderBy: { ordem: 'asc' }
                         }
                     },
-                    where: { ativo: true },
                     orderBy: { ordem: 'asc' }
                 }
             },
@@ -897,3 +893,4 @@ process.on('SIGINT', async () => {
 startServer();
 
 export default app;
+
