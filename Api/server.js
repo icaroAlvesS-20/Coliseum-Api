@@ -531,7 +531,32 @@ app.post('/api/progresso/aula', async (req, res) => {
         });
     }
 });
+// ✅ GET /api/aulas - LISTAR TODAS AS AULAS (adicione esta rota)
+app.get('/api/aulas', async (req, res) => {
+    try {
+        const aulas = await prisma.aula.findMany({
+            where: { ativo: true },
+            include: {
+                modulo: {
+                    include: {
+                        curso: true
+                    }
+                }
+            },
+            orderBy: { criadoEm: 'asc' }
+        });
 
+        console.log(`✅ ${aulas.length} aulas carregadas`);
+        res.json(aulas);
+
+    } catch (error) {
+        console.error('❌ Erro ao buscar aulas:', error);
+        res.status(500).json({ 
+            error: 'Erro ao carregar aulas',
+            details: error.message 
+        });
+    }
+});
 // ========== ROTAS EXISTENTES ========== //
 
 // ✅ RANKING
@@ -894,5 +919,6 @@ process.on('SIGINT', async () => {
 startServer();
 
 export default app;
+
 
 
