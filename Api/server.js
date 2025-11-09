@@ -1,4 +1,3 @@
-// server.js - COMPLETO E CORRIGIDO
 import express from 'express';
 import cors from 'cors';
 import { PrismaClient } from '@prisma/client';
@@ -19,7 +18,7 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
 }));
 
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 
 // ========== MIDDLEWARE DE LOG ========== //
 app.use((req, res, next) => {
@@ -59,15 +58,20 @@ app.get('/api/health', async (req, res) => {
 });
 
 // ========== SISTEMA DE CURSOS - CORRIGIDO ========== //
+
+// ✅ GET /api/cursos - TODOS OS CURSOS
 app.get('/api/cursos', async (req, res) => {
     try {
         console.log('📚 Buscando todos os cursos...');
 
         const cursos = await prisma.curso.findMany({
+            where: { ativo: true },
             include: {
                 modulos: {
+                    where: { ativo: true },
                     include: {
                         aulas: {
+                            where: { ativo: true },
                             orderBy: { ordem: 'asc' }
                         }
                     },
@@ -101,12 +105,15 @@ app.get('/api/cursos/:id', async (req, res) => {
 
         const curso = await prisma.curso.findUnique({
             where: { 
-                id: cursoId
+                id: cursoId,
+                ativo: true
             },
             include: {
                 modulos: {
+                    where: { ativo: true },
                     include: {
                         aulas: {
+                            where: { ativo: true },
                             orderBy: { ordem: 'asc' }
                         }
                     },
@@ -140,7 +147,7 @@ app.post('/api/cursos', async (req, res) => {
     try {
         console.log('🎯 Criando novo curso...', req.body);
         
-        const { titulo, descricao, materia, categoria, nivel, duracao, imagem, modulos } = req.body;
+        const { titulo, descricao, materia, categoria, nivel, duracao, imagem, ativo, modulos } = req.body;
 
         // Validar dados obrigatórios
         if (!titulo || !materia || !categoria || !nivel || !duracao) {
@@ -161,24 +168,26 @@ app.post('/api/cursos', async (req, res) => {
                     categoria: categoria.trim(),
                     nivel: nivel.trim(),
                     duracao: parseInt(duracao),
-                    imagem: imagem?.trim() || null
+                    imagem: imagem?.trim() || null,
+                    ativo: ativo !== undefined ? ativo : true
                 }
             });
 
             // Criar módulos e aulas se fornecidos
-            if (modulos && modulos.length > 0) {
+            if (modulos && Array.isArray(modulos) && modulos.length > 0) {
                 for (const moduloData of modulos) {
                     const modulo = await tx.modulo.create({
                         data: {
                             titulo: moduloData.titulo.trim(),
                             descricao: moduloData.descricao?.trim() || '',
                             ordem: moduloData.ordem || 1,
-                            cursoId: curso.id
+                            cursoId: curso.id,
+                            ativo: true
                         }
                     });
 
                     // Criar aulas do módulo
-                    if (moduloData.aulas && moduloData.aulas.length > 0) {
+                    if (moduloData.aulas && Array.isArray(moduloData.aulas) && moduloData.aulas.length > 0) {
                         for (const aulaData of moduloData.aulas) {
                             await tx.aula.create({
                                 data: {
@@ -188,7 +197,8 @@ app.post('/api/cursos', async (req, res) => {
                                     videoUrl: aulaData.videoUrl?.trim() || null,
                                     duracao: parseInt(aulaData.duracao) || 15,
                                     ordem: aulaData.ordem || 1,
-                                    moduloId: modulo.id
+                                    moduloId: modulo.id,
+                                    ativo: true
                                 }
                             });
                         }
@@ -229,7 +239,7 @@ app.post('/api/cursos', async (req, res) => {
 app.put('/api/cursos/:id', async (req, res) => {
     try {
         const cursoId = parseInt(req.params.id);
-        const { titulo, descricao, materia, categoria, nivel, duracao, imagem } = req.body;
+        const { titulo, descricao, materia, categoria, nivel, duracao, imagem, ativo } = req.body;
 
         console.log(`✏️ Atualizando curso ID: ${cursoId}`, req.body);
 
@@ -246,19 +256,24 @@ app.put('/api/cursos/:id', async (req, res) => {
             return res.status(404).json({ error: 'Curso não encontrado' });
         }
 
+        // Preparar dados para atualização
+        const updateData = {
+            atualizadoEm: new Date()
+        };
+
+        if (titulo !== undefined) updateData.titulo = titulo.trim();
+        if (descricao !== undefined) updateData.descricao = descricao.trim();
+        if (materia !== undefined) updateData.materia = materia.trim();
+        if (categoria !== undefined) updateData.categoria = categoria.trim();
+        if (nivel !== undefined) updateData.nivel = nivel.trim();
+        if (duracao !== undefined) updateData.duracao = parseInt(duracao);
+        if (imagem !== undefined) updateData.imagem = imagem?.trim() || null;
+        if (ativo !== undefined) updateData.ativo = ativo;
+
         // Atualizar curso
         const cursoAtualizado = await prisma.curso.update({
             where: { id: cursoId },
-            data: {
-                ...(titulo && { titulo: titulo.trim() }),
-                ...(descricao !== undefined && { descricao: descricao.trim() }),
-                ...(materia && { materia: materia.trim() }),
-                ...(categoria && { categoria: categoria.trim() }),
-                ...(nivel && { nivel: nivel.trim() }),
-                ...(duracao && { duracao: parseInt(duracao) }),
-                ...(imagem !== undefined && { imagem: imagem?.trim() || null }),
-                atualizadoEm: new Date()
-            },
+            data: updateData,
             include: {
                 modulos: {
                     include: {
@@ -284,7 +299,7 @@ app.put('/api/cursos/:id', async (req, res) => {
     }
 });
 
-// ✅ DELETE /api/cursos/:id - EXCLUIR CURSO
+// ✅ DELETE /api/cursos/:id - EXCLUIR CURSO (SOFT DELETE)
 app.delete('/api/cursos/:id', async (req, res) => {
     try {
         const cursoId = parseInt(req.params.id);
@@ -303,12 +318,16 @@ app.delete('/api/cursos/:id', async (req, res) => {
             return res.status(404).json({ error: 'Curso não encontrado' });
         }
 
-        // Excluir curso (o cascade do Prisma vai excluir módulos e aulas automaticamente)
-        await prisma.curso.delete({
-            where: { id: cursoId }
+        // Soft delete - marcar como inativo
+        await prisma.curso.update({
+            where: { id: cursoId },
+            data: { 
+                ativo: false,
+                atualizadoEm: new Date()
+            }
         });
 
-        console.log(`✅ Curso excluído: ${cursoExistente.titulo}`);
+        console.log(`✅ Curso marcado como inativo: ${cursoExistente.titulo}`);
         res.json({
             success: true,
             message: 'Curso excluído com sucesso!',
@@ -327,7 +346,7 @@ app.delete('/api/cursos/:id', async (req, res) => {
     }
 });
 
-// ✅ GET /api/cursos/:id/modulos - MÓDULOS DO CURSO (CORRIGIDO)
+// ✅ GET /api/cursos/:id/modulos - MÓDULOS DO CURSO
 app.get('/api/cursos/:id/modulos', async (req, res) => {
     try {
         const cursoId = parseInt(req.params.id);
@@ -341,7 +360,10 @@ app.get('/api/cursos/:id/modulos', async (req, res) => {
 
         // Verificar se o curso existe
         const cursoExiste = await prisma.curso.findUnique({
-            where: { id: cursoId }
+            where: { 
+                id: cursoId,
+                ativo: true 
+            }
         });
 
         if (!cursoExiste) {
@@ -353,10 +375,12 @@ app.get('/api/cursos/:id/modulos', async (req, res) => {
 
         const modulos = await prisma.modulo.findMany({
             where: { 
-                cursoId: cursoId
+                cursoId: cursoId,
+                ativo: true
             },
             include: {
                 aulas: {
+                    where: { ativo: true },
                     orderBy: { ordem: 'asc' },
                     include: {
                         progressos: usuarioId ? {
@@ -381,7 +405,7 @@ app.get('/api/cursos/:id/modulos', async (req, res) => {
     }
 });
 
-// ✅ GET /api/aulas/:id - DETALHES DA AULA (CORRIGIDO)
+// ✅ GET /api/aulas/:id - DETALHES DA AULA
 app.get('/api/aulas/:id', async (req, res) => {
     try {
         const aulaId = parseInt(req.params.id);
@@ -395,7 +419,8 @@ app.get('/api/aulas/:id', async (req, res) => {
 
         const aula = await prisma.aula.findUnique({
             where: { 
-                id: aulaId
+                id: aulaId,
+                ativo: true
             },
             include: {
                 modulo: {
@@ -428,7 +453,22 @@ app.get('/api/aulas/:id', async (req, res) => {
 // ✅ GET /api/aulas - LISTAR TODAS AS AULAS
 app.get('/api/aulas', async (req, res) => {
     try {
+        const { moduloId, cursoId } = req.query;
+        
+        let whereClause = { ativo: true };
+        
+        if (moduloId) {
+            whereClause.moduloId = parseInt(moduloId);
+        }
+        
+        if (cursoId) {
+            whereClause.modulo = {
+                cursoId: parseInt(cursoId)
+            };
+        }
+
         const aulas = await prisma.aula.findMany({
+            where: whereClause,
             include: {
                 modulo: {
                     include: {
@@ -436,7 +476,7 @@ app.get('/api/aulas', async (req, res) => {
                     }
                 }
             },
-            orderBy: { criadoEm: 'asc' }
+            orderBy: { ordem: 'asc' }
         });
 
         console.log(`✅ ${aulas.length} aulas carregadas`);
@@ -451,7 +491,7 @@ app.get('/api/aulas', async (req, res) => {
     }
 });
 
-// ✅ POST /api/progresso/aula - MARCAR AULA COMO CONCLUÍDA (CORRIGIDO)
+// ✅ POST /api/progresso/aula - MARCAR AULA COMO CONCLUÍDA
 app.post('/api/progresso/aula', async (req, res) => {
     try {
         const { usuarioId, aulaId, cursoId } = req.body;
@@ -460,13 +500,16 @@ app.post('/api/progresso/aula', async (req, res) => {
         if (!usuarioId || !aulaId || !cursoId) {
             return res.status(400).json({ 
                 error: 'Dados incompletos',
-                received: { usuarioId, aulaId, cursoId }
+                required: ['usuarioId', 'aulaId', 'cursoId']
             });
         }
 
         // Verificar se a aula existe
         const aulaExiste = await prisma.aula.findUnique({
-            where: { id: aulaId }
+            where: { 
+                id: aulaId,
+                ativo: true 
+            }
         });
 
         if (!aulaExiste) {
@@ -477,19 +520,19 @@ app.post('/api/progresso/aula', async (req, res) => {
         const progressoAula = await prisma.progressoAula.upsert({
             where: {
                 usuarioId_aulaId: {
-                    usuarioId: usuarioId,
-                    aulaId: aulaId
+                    usuarioId: parseInt(usuarioId),
+                    aulaId: parseInt(aulaId)
                 }
             },
             update: {
                 concluida: true,
                 dataConclusao: new Date(),
-                cursoId: cursoId
+                cursoId: parseInt(cursoId)
             },
             create: {
-                usuarioId: usuarioId,
-                aulaId: aulaId,
-                cursoId: cursoId,
+                usuarioId: parseInt(usuarioId),
+                aulaId: parseInt(aulaId),
+                cursoId: parseInt(cursoId),
                 concluida: true,
                 dataConclusao: new Date()
             }
@@ -499,15 +542,17 @@ app.post('/api/progresso/aula', async (req, res) => {
         const totalAulas = await prisma.aula.count({
             where: { 
                 modulo: { 
-                    cursoId: cursoId 
-                }
+                    cursoId: parseInt(cursoId),
+                    ativo: true
+                },
+                ativo: true
             }
         });
 
         const aulasConcluidas = await prisma.progressoAula.count({
             where: { 
-                usuarioId: usuarioId,
-                cursoId: cursoId,
+                usuarioId: parseInt(usuarioId),
+                cursoId: parseInt(cursoId),
                 concluida: true
             }
         });
@@ -518,21 +563,22 @@ app.post('/api/progresso/aula', async (req, res) => {
         await prisma.progressoCurso.upsert({
             where: {
                 usuarioId_cursoId: {
-                    usuarioId: usuarioId,
-                    cursoId: cursoId
+                    usuarioId: parseInt(usuarioId),
+                    cursoId: parseInt(cursoId)
                 }
             },
             update: {
                 progresso: progressoCurso,
                 concluido: progressoCurso >= 100,
-                ultimaAula: aulaId
+                ultimaAula: parseInt(aulaId),
+                atualizadoEm: new Date()
             },
             create: {
-                usuarioId: usuarioId,
-                cursoId: cursoId,
+                usuarioId: parseInt(usuarioId),
+                cursoId: parseInt(cursoId),
                 progresso: progressoCurso,
                 concluido: progressoCurso >= 100,
-                ultimaAula: aulaId
+                ultimaAula: parseInt(aulaId)
             }
         });
 
@@ -587,7 +633,16 @@ app.post('/api/usuarios', async (req, res) => {
     try {
         const { ra, nome, senha, serie, action = 'login' } = req.body;
 
+        // Validação básica
+        if (!ra || !senha) {
+            return res.status(400).json({ error: 'RA e senha são obrigatórios' });
+        }
+
         if (action === 'cadastro') {
+            if (!nome || !serie) {
+                return res.status(400).json({ error: 'Nome e série são obrigatórios para cadastro' });
+            }
+
             const novoUsuario = await prisma.usuario.create({
                 data: {
                     ra: ra.toString().trim(),
@@ -628,6 +683,7 @@ app.post('/api/usuarios', async (req, res) => {
         if (error.code === 'P2002') {
             return res.status(409).json({ error: 'RA já cadastrado' });
         }
+        console.error('❌ Erro no sistema de usuários:', error);
         res.status(500).json({ error: 'Erro interno do servidor' });
     }
 });
@@ -644,16 +700,20 @@ app.put('/api/usuarios/:id', async (req, res) => {
             return res.status(400).json({ error: 'ID do usuário inválido' });
         }
 
+        // Preparar dados para atualização
+        const updateData = {
+            atualizadoEm: new Date()
+        };
+
+        if (nome !== undefined) updateData.nome = nome.trim();
+        if (ra !== undefined) updateData.ra = ra.toString().trim();
+        if (serie !== undefined) updateData.serie = serie.trim();
+        if (pontuacao !== undefined) updateData.pontuacao = parseInt(pontuacao);
+        if (desafiosCompletados !== undefined) updateData.desafiosCompletados = parseInt(desafiosCompletados);
+
         const usuarioAtualizado = await prisma.usuario.update({
             where: { id: userId },
-            data: {
-                ...(nome && { nome: nome.trim() }),
-                ...(ra && { ra: ra.toString().trim() }),
-                ...(serie && { serie: serie.trim() }),
-                ...(pontuacao !== undefined && { pontuacao: parseInt(pontuacao) }),
-                ...(desafiosCompletados !== undefined && { desafiosCompletados: parseInt(desafiosCompletados) }),
-                atualizadoEm: new Date()
-            }
+            data: updateData
         });
 
         console.log(`✅ Usuário atualizado: ${usuarioAtualizado.nome}`);
@@ -730,6 +790,14 @@ app.post('/api/videos', async (req, res) => {
     try {
         const { titulo, materia, categoria, url, descricao, duracao } = req.body;
 
+        // Validação
+        if (!titulo || !materia || !categoria || !url || !duracao) {
+            return res.status(400).json({ 
+                error: 'Dados incompletos',
+                required: ['titulo', 'materia', 'categoria', 'url', 'duracao']
+            });
+        }
+
         const novoVideo = await prisma.video.create({
             data: {
                 titulo: titulo.trim(),
@@ -748,6 +816,7 @@ app.post('/api/videos', async (req, res) => {
         });
 
     } catch (error) {
+        console.error('❌ Erro ao criar vídeo:', error);
         res.status(500).json({ error: 'Erro ao adicionar vídeo' });
     }
 });
@@ -764,16 +833,18 @@ app.put('/api/videos/:id', async (req, res) => {
             return res.status(400).json({ error: 'ID do vídeo inválido' });
         }
 
+        // Preparar dados para atualização
+        const updateData = {};
+        if (titulo !== undefined) updateData.titulo = titulo.trim();
+        if (materia !== undefined) updateData.materia = materia.trim();
+        if (categoria !== undefined) updateData.categoria = categoria.trim();
+        if (url !== undefined) updateData.url = url.trim();
+        if (descricao !== undefined) updateData.descricao = descricao.trim();
+        if (duracao !== undefined) updateData.duracao = parseInt(duracao);
+
         const videoAtualizado = await prisma.video.update({
             where: { id: videoId },
-            data: {
-                ...(titulo && { titulo: titulo.trim() }),
-                ...(materia && { materia: materia.trim() }),
-                ...(categoria && { categoria: categoria.trim() }),
-                ...(url && { url: url.trim() }),
-                ...(descricao !== undefined && { descricao: descricao.trim() }),
-                ...(duracao && { duracao: parseInt(duracao) })
-            }
+            data: updateData
         });
 
         console.log(`✅ Vídeo atualizado: ${videoAtualizado.titulo}`);
@@ -834,108 +905,70 @@ app.delete('/api/videos/:id', async (req, res) => {
     }
 });
 
-// ========== ROTAS DE DEBUG ========== //
+// ========== ROTA DE DEBUG ========== //
 
-// ✅ DEBUG: Verificar estrutura do banco
-app.get('/api/debug/database', async (req, res) => {
+// ✅ ROTA PARA VERIFICAR CURSO ESPECÍFICO
+app.get('/api/debug/curso/:id', async (req, res) => {
     try {
-        console.log('🔍 Debug: Verificando estrutura do banco...');
+        const cursoId = parseInt(req.params.id);
+        console.log(`🔍 Debug: Verificando curso ID: ${cursoId}...`);
         
-        // Verificar tabelas
-        const tabelas = await prisma.$queryRaw`
-            SELECT table_name 
-            FROM information_schema.tables 
-            WHERE table_schema = 'public'
-        `;
-
-        // Verificar se há dados
-        const totalCursos = await prisma.curso.count();
-        const totalModulos = await prisma.modulo.count();
-        const totalAulas = await prisma.aula.count();
-        const totalUsuarios = await prisma.usuario.count();
-
-        // Verificar aula específica
-        const aula1 = await prisma.aula.findUnique({
-            where: { id: 1 }
+        const curso = await prisma.curso.findUnique({
+            where: { id: cursoId },
+            include: {
+                modulos: {
+                    include: {
+                        aulas: true
+                    }
+                }
+            }
         });
 
+        if (!curso) {
+            return res.json({ 
+                exists: false,
+                message: `Curso ${cursoId} não existe no banco de dados`
+            });
+        }
+
         res.json({
-            tabelas,
-            estatisticas: {
-                totalCursos,
-                totalModulos,
-                totalAulas,
-                totalUsuarios
+            exists: true,
+            curso: {
+                id: curso.id,
+                titulo: curso.titulo,
+                ativo: curso.ativo,
+                totalModulos: curso.modulos.length,
+                totalAulas: curso.modulos.reduce((acc, mod) => acc + mod.aulas.length, 0)
             },
-            aula1: aula1 || { exists: false },
-            status: 'success'
+            modulos: curso.modulos.map(mod => ({
+                id: mod.id,
+                titulo: mod.titulo,
+                ativo: mod.ativo,
+                aulas: mod.aulas.length
+            }))
         });
 
     } catch (error) {
-        console.error('❌ Erro no debug database:', error);
-        res.status(500).json({ 
-            error: error.message,
-            code: error.code
-        });
+        res.status(500).json({ error: error.message });
     }
 });
 
-// ✅ DEBUG: Criar dados de teste
-app.post('/api/debug/create-test-data', async (req, res) => {
-    try {
-        console.log('🔍 Debug: Criando dados de teste...');
+// ========== MANUSEIO DE ERROS GLOBAL ========== //
 
-        // Criar um curso de teste
-        const cursoTeste = await prisma.curso.create({
-            data: {
-                titulo: 'Curso de Teste - PHP',
-                descricao: 'Curso para testar o sistema',
-                materia: 'Programação',
-                categoria: 'Backend',
-                nivel: 'Iniciante',
-                duracao: 120,
-                imagem: null
-            }
-        });
+app.use((error, req, res, next) => {
+    console.error('❌ Erro global:', error);
+    res.status(500).json({
+        error: 'Erro interno do servidor',
+        message: error.message
+    });
+});
 
-        // Criar um módulo
-        const moduloTeste = await prisma.modulo.create({
-            data: {
-                titulo: 'Introdução ao PHP',
-                descricao: 'Primeiros passos com PHP',
-                ordem: 1,
-                cursoId: cursoTeste.id
-            }
-        });
-
-        // Criar uma aula
-        const aulaTeste = await prisma.aula.create({
-            data: {
-                titulo: 'O que é PHP?',
-                descricao: 'Introdução à linguagem PHP',
-                conteudo: '<h2>PHP é uma linguagem de programação</h2><p>Usada para desenvolvimento web...</p>',
-                videoUrl: 'https://www.youtube.com/embed/dQw4w9WgXcQ',
-                duracao: 15,
-                ordem: 1,
-                moduloId: moduloTeste.id
-            }
-        });
-
-        res.json({
-            success: true,
-            curso: cursoTeste,
-            modulo: moduloTeste,
-            aula: aulaTeste,
-            message: 'Dados de teste criados com sucesso!'
-        });
-
-    } catch (error) {
-        console.error('❌ Erro ao criar dados de teste:', error);
-        res.status(500).json({ 
-            error: error.message,
-            code: error.code
-        });
-    }
+// Rota não encontrada
+app.use('*', (req, res) => {
+    res.status(404).json({
+        error: 'Rota não encontrada',
+        path: req.originalUrl
+    });
 });
 
 // ========== INICIALIZAÇÃO ========== //
@@ -949,7 +982,7 @@ async function startServer() {
         
         app.listen(PORT, () => {
             console.log(`\n📍 Servidor rodando na porta ${PORT}`);
-            console.log(`🌐 URL: https://coliseum-api.onrender.com`);
+            console.log(`🌐 URL: http://localhost:${PORT}`);
             console.log(`\n🎯 ENDPOINTS PRINCIPAIS:`);
             console.log(`✅  GET /api/cursos`);
             console.log(`✅  GET /api/cursos/:id`);
@@ -958,8 +991,7 @@ async function startServer() {
             console.log(`✅  GET /api/aulas/:id`);
             console.log(`✅  POST /api/progresso/aula`);
             console.log(`✅  GET /api/health`);
-            console.log(`🔍  GET /api/debug/database`);
-            console.log(`🔍  POST /api/debug/create-test-data`);
+            console.log(`🔍  GET /api/debug/curso/:id`);
         });
 
     } catch (error) {
@@ -976,5 +1008,3 @@ process.on('SIGINT', async () => {
 });
 
 startServer();
-
-export default app;
