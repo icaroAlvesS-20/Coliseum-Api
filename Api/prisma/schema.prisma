@@ -1,67 +1,10 @@
-// schema.prisma - ATUALIZADO
-generator client {
-  provider = "prisma-client-js"
-}
-
-datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
-}
-
-model Usuario {
-  id                  Int                 @id @default(autoincrement())
-  ra                  String              @unique
-  nome                String
-  senha               String
-  serie               String
-  pontuacao           Int                 @default(0)
-  desafiosCompletados Int                 @default(0)
-  criadoEm            DateTime            @default(now())
-  atualizadoEm        DateTime            @default(now())
-
-  progressosCursos    ProgressoCurso[]
-  progressosAulas     ProgressoAula[]
-
-  @@map("usuarios")
-}
-
-model Video {
-  id        Int      @id @default(autoincrement())
-  titulo    String
-  materia   String
-  categoria String
-  url       String
-  descricao String?
-  duracao   Int
-  criadoEm  DateTime @default(now())
-
-  @@map("videos")
-}
-
-model Curso {
-  id          Int               @id @default(autoincrement())
-  titulo      String
-  descricao   String?
-  materia     String
-  categoria   String
-  nivel       String
-  duracao     Int
-  imagem      String?
-  ativo       Boolean           @default(true)
-  criadoEm    DateTime          @default(now())
-  atualizadoEm DateTime         @default(now())
-
-  modulos     Modulo[]
-  progressos  ProgressoCurso[]
-
-  @@map("cursos")
-}
-
+// Adicione ao model Modulo:
 model Modulo {
   id          Int      @id @default(autoincrement())
   titulo      String
   descricao   String?
   ordem       Int      @default(1)
+  ativo       Boolean  @default(true)  // ← ADICIONE ESTA LINHA
   cursoId     Int
   criadoEm    DateTime @default(now())
 
@@ -71,14 +14,16 @@ model Modulo {
   @@map("modulos")
 }
 
+// Adicione ao model Aula:
 model Aula {
   id          Int               @id @default(autoincrement())
   titulo      String
   descricao   String?
-  conteudo    String?           // HTML content ou markdown
-  videoUrl    String?           // URL do vídeo
-  duracao     Int               @default(15) // em minutos
+  conteudo    String?
+  videoUrl    String?
+  duracao     Int               @default(15)
   ordem       Int               @default(1)
+  ativo       Boolean           @default(true)  // ← ADICIONE ESTA LINHA
   moduloId    Int
   criadoEm    DateTime          @default(now())
 
@@ -86,37 +31,4 @@ model Aula {
   progressos  ProgressoAula[]
 
   @@map("aulas")
-}
-
-model ProgressoCurso {
-  id          Int       @id @default(autoincrement())
-  progresso   Float     @default(0)  // 0-100
-  concluido   Boolean   @default(false)
-  ultimaAula  Int?
-  usuarioId   Int
-  cursoId     Int
-  criadoEm    DateTime  @default(now())
-  atualizadoEm DateTime @default(now())
-
-  usuario     Usuario   @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
-  curso       Curso     @relation(fields: [cursoId], references: [id], onDelete: Cascade)
-
-  @@unique([usuarioId, cursoId])
-  @@map("progresso_cursos")
-}
-
-model ProgressoAula {
-  id              Int       @id @default(autoincrement())
-  concluida       Boolean   @default(false)
-  dataConclusao   DateTime?
-  usuarioId       Int
-  aulaId          Int
-  cursoId         Int
-  criadoEm        DateTime  @default(now())
-
-  usuario         Usuario   @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
-  aula            Aula      @relation(fields: [aulaId], references: [id], onDelete: Cascade)
-
-  @@unique([usuarioId, aulaId])
-  @@map("progresso_aulas")
 }
