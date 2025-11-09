@@ -58,7 +58,7 @@ app.get('/api/health', async (req, res) => {
     }
 });
 
-// ========== SISTEMA DE CURSOS ========== //
+// ========== SISTEMA DE CURSOS - CORRIGIDO ========== //
 app.get('/api/cursos', async (req, res) => {
     try {
         console.log('📚 Buscando todos os cursos...');
@@ -327,7 +327,7 @@ app.delete('/api/cursos/:id', async (req, res) => {
     }
 });
 
-// ✅ GET /api/cursos/:id/modulos - MÓDULOS DO CURSO
+// ✅ GET /api/cursos/:id/modulos - MÓDULOS DO CURSO (CORRIGIDO)
 app.get('/api/cursos/:id/modulos', async (req, res) => {
     try {
         const cursoId = parseInt(req.params.id);
@@ -381,7 +381,7 @@ app.get('/api/cursos/:id/modulos', async (req, res) => {
     }
 });
 
-// ✅ GET /api/aulas/:id - DETALHES DA AULA
+// ✅ GET /api/aulas/:id - DETALHES DA AULA (CORRIGIDO)
 app.get('/api/aulas/:id', async (req, res) => {
     try {
         const aulaId = parseInt(req.params.id);
@@ -453,13 +453,10 @@ app.get('/api/aulas', async (req, res) => {
 
 // ✅ POST /api/progresso/aula - MARCAR AULA COMO CONCLUÍDA (CORRIGIDO)
 app.post('/api/progresso/aula', async (req, res) => {
-    console.log('=== 📊 REGISTRANDO PROGRESSO ===');
-    
     try {
         const { usuarioId, aulaId, cursoId } = req.body;
-        console.log('Dados recebidos:', { usuarioId, aulaId, cursoId });
+        console.log(`📊 Registrando progresso - Usuário: ${usuarioId}, Aula: ${aulaId}, Curso: ${cursoId}`);
 
-        // Validação
         if (!usuarioId || !aulaId || !cursoId) {
             return res.status(400).json({ 
                 error: 'Dados incompletos',
@@ -467,119 +464,91 @@ app.post('/api/progresso/aula', async (req, res) => {
             });
         }
 
-        // Converter para números
-        const userId = parseInt(usuarioId);
-        const aula = parseInt(aulaId);
-        const curso = parseInt(cursoId);
-
-        console.log('🔍 Verificando aula...');
+        // Verificar se a aula existe
         const aulaExiste = await prisma.aula.findUnique({
-            where: { id: aula }
+            where: { id: aulaId }
         });
 
         if (!aulaExiste) {
             return res.status(404).json({ error: 'Aula não encontrada' });
         }
 
-        console.log('✅ Aula encontrada:', aulaExiste.titulo);
-
-        // Criar ou atualizar progresso
-        try {
-            const progresso = await prisma.progressoAula.create({
-                data: {
-                    usuarioId: userId,
-                    aulaId: aula,
-                    cursoId: curso,
-                    concluida: true,
-                    dataConclusao: new Date()
+        // Marca aula como concluída
+        const progressoAula = await prisma.progressoAula.upsert({
+            where: {
+                usuarioId_aulaId: {
+                    usuarioId: usuarioId,
+                    aulaId: aulaId
                 }
-            });
-            console.log('✅ Progresso criado');
-        } catch (error) {
-            if (error.code === 'P2002') {
-                // Já existe, atualizar
-                await prisma.progressoAula.update({
-                    where: {
-                        usuarioId_aulaId: {
-                            usuarioId: userId,
-                            aulaId: aula
-                        }
-                    },
-                    data: {
-                        concluida: true,
-                        dataConclusao: new Date(),
-                        cursoId: curso
-                    }
-                });
-                console.log('✅ Progresso atualizado');
-            } else {
-                throw error;
+            },
+            update: {
+                concluida: true,
+                dataConclusao: new Date(),
+                cursoId: cursoId
+            },
+            create: {
+                usuarioId: usuarioId,
+                aulaId: aulaId,
+                cursoId: cursoId,
+                concluida: true,
+                dataConclusao: new Date()
             }
-        }
+        });
 
-        // Calcular progresso do curso
+        // Calcula progresso do curso
         const totalAulas = await prisma.aula.count({
             where: { 
                 modulo: { 
-                    cursoId: curso 
+                    cursoId: cursoId 
                 }
             }
         });
 
         const aulasConcluidas = await prisma.progressoAula.count({
             where: { 
-                usuarioId: userId,
-                cursoId: curso,
+                usuarioId: usuarioId,
+                cursoId: cursoId,
                 concluida: true
             }
         });
 
         const progressoCurso = totalAulas > 0 ? Math.round((aulasConcluidas / totalAulas) * 100) : 0;
 
-        // Atualizar progresso do curso
-        try {
-            await prisma.progressoCurso.upsert({
-                where: {
-                    usuarioId_cursoId: {
-                        usuarioId: userId,
-                        cursoId: curso
-                    }
-                },
-                update: {
-                    progresso: progressoCurso,
-                    concluido: progressoCurso >= 100,
-                    ultimaAula: aula,
-                    atualizadoEm: new Date()
-                },
-                create: {
-                    usuarioId: userId,
-                    cursoId: curso,
-                    progresso: progressoCurso,
-                    concluido: progressoCurso >= 100,
-                    ultimaAula: aula,
-                    criadoEm: new Date(),
-                    atualizadoEm: new Date()
+        // Atualiza progresso do curso
+        await prisma.progressoCurso.upsert({
+            where: {
+                usuarioId_cursoId: {
+                    usuarioId: usuarioId,
+                    cursoId: cursoId
                 }
-            });
-            console.log('✅ Progresso do curso atualizado');
-        } catch (error) {
-            console.warn('⚠️ Erro ao atualizar progresso do curso:', error.message);
-        }
+            },
+            update: {
+                progresso: progressoCurso,
+                concluido: progressoCurso >= 100,
+                ultimaAula: aulaId
+            },
+            create: {
+                usuarioId: usuarioId,
+                cursoId: cursoId,
+                progresso: progressoCurso,
+                concluido: progressoCurso >= 100,
+                ultimaAula: aulaId
+            }
+        });
 
-        console.log(`📊 Progresso final: ${progressoCurso}% (${aulasConcluidas}/${totalAulas})`);
+        console.log(`✅ Progresso atualizado: ${progressoCurso}% (${aulasConcluidas}/${totalAulas} aulas)`);
 
-        // Resposta de sucesso
         res.json({
             success: true,
-            message: 'Aula concluída com sucesso!',
             progresso: progressoCurso,
             concluido: progressoCurso >= 100,
             aulasConcluidas,
-            totalAulas
+            totalAulas,
+            message: 'Aula concluída com sucesso!'
         });
 
     } catch (error) {
-        console.error('💥 Erro no progresso:', error);
+        console.error('❌ Erro ao registrar progresso:', error);
         res.status(500).json({ 
             error: 'Erro ao salvar progresso',
             details: error.message,
@@ -969,113 +938,6 @@ app.post('/api/debug/create-test-data', async (req, res) => {
     }
 });
 
-// ✅ TESTE: Endpoint GET para testar progresso
-app.get('/api/teste/progresso', async (req, res) => {
-    try {
-        console.log('🧪 TESTE: Simulando progresso para aula 1');
-        
-        // Dados fixos para teste
-        const usuarioId = 1;
-        const aulaId = 1;
-        const cursoId = 1;
-
-        console.log('Dados de teste:', { usuarioId, aulaId, cursoId });
-
-        // Verificar se a aula existe
-        const aulaExiste = await prisma.aula.findFirst({
-            where: { id: aulaId }
-        });
-
-        if (!aulaExiste) {
-            return res.json({ 
-                success: false,
-                error: `Aula ${aulaId} não existe`
-            });
-        }
-
-        console.log('✅ Aula encontrada:', aulaExiste.titulo);
-
-        // Tentar criar progresso
-        try {
-            const progresso = await prisma.progressoAula.create({
-                data: {
-                    usuarioId: usuarioId,
-                    aulaId: aulaId,
-                    cursoId: cursoId,
-                    concluida: true,
-                    dataConclusao: new Date()
-                }
-            });
-
-            return res.json({
-                success: true,
-                message: '✅ Progresso criado com sucesso!',
-                progresso: progresso
-            });
-
-        } catch (error) {
-            if (error.code === 'P2002') {
-                return res.json({
-                    success: true,
-                    message: '✅ Progresso já existe (tudo funcionando!)',
-                    error_code: error.code
-                });
-            }
-            throw error;
-        }
-
-    } catch (error) {
-        console.error('❌ Erro no teste:', error);
-        return res.status(500).json({
-            success: false,
-            error: error.message,
-            code: error.code,
-            meta: error.meta
-        });
-    }
-});
-
-// ✅ TESTE 2: Ver progressos existentes
-app.get('/api/teste/progressos-existem', async (req, res) => {
-    try {
-        const progressos = await prisma.progressoAula.findMany({
-            take: 10
-        });
-
-        res.json({
-            success: true,
-            total: progressos.length,
-            progressos: progressos
-        });
-    } catch (error) {
-        res.json({
-            success: false,
-            error: error.message
-        });
-    }
-});
-
-// ✅ TESTE 3: Verificar estrutura da tabela progresso_aulas
-app.get('/api/debug/estrutura-progresso', async (req, res) => {
-    try {
-        const colunas = await prisma.$queryRaw`
-            SELECT column_name, data_type, is_nullable
-            FROM information_schema.columns 
-            WHERE table_name = 'progresso_aulas'
-        `;
-
-        res.json({
-            success: true,
-            colunas: colunas
-        });
-    } catch (error) {
-        res.json({
-            success: false,
-            error: error.message
-        });
-    }
-});
-
 // ========== INICIALIZAÇÃO ========== //
 
 async function startServer() {
@@ -1098,8 +960,6 @@ async function startServer() {
             console.log(`✅  GET /api/health`);
             console.log(`🔍  GET /api/debug/database`);
             console.log(`🔍  POST /api/debug/create-test-data`);
-            console.log(`🧪  GET /api/teste/progresso`);
-            console.log(`🧪  GET /api/teste/progressos-existem`);
         });
 
     } catch (error) {
