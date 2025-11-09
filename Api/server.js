@@ -58,7 +58,7 @@ app.get('/api/health', async (req, res) => {
     }
 });
 
-// ========== SISTEMA DE CURSOS - CORRIGIDO ========== //
+// ========== SISTEMA DE CURSOS ========== //
 app.get('/api/cursos', async (req, res) => {
     try {
         console.log('📚 Buscando todos os cursos...');
@@ -327,7 +327,7 @@ app.delete('/api/cursos/:id', async (req, res) => {
     }
 });
 
-// ✅ GET /api/cursos/:id/modulos - MÓDULOS DO CURSO (CORRIGIDO)
+// ✅ GET /api/cursos/:id/modulos - MÓDULOS DO CURSO
 app.get('/api/cursos/:id/modulos', async (req, res) => {
     try {
         const cursoId = parseInt(req.params.id);
@@ -381,7 +381,7 @@ app.get('/api/cursos/:id/modulos', async (req, res) => {
     }
 });
 
-// ✅ GET /api/aulas/:id - DETALHES DA AULA (CORRIGIDO)
+// ✅ GET /api/aulas/:id - DETALHES DA AULA
 app.get('/api/aulas/:id', async (req, res) => {
     try {
         const aulaId = parseInt(req.params.id);
@@ -452,160 +452,142 @@ app.get('/api/aulas', async (req, res) => {
 });
 
 // ✅ POST /api/progresso/aula - MARCAR AULA COMO CONCLUÍDA (CORRIGIDO)
-// ✅ POST /api/progresso/aula - VERSÃO CORRIGIDA E SIMPLIFICADA
 app.post('/api/progresso/aula', async (req, res) => {
-    console.log('=== 📊 INICIANDO REGISTRO DE PROGRESSO ===');
+    console.log('=== 📊 REGISTRANDO PROGRESSO ===');
     
     try {
         const { usuarioId, aulaId, cursoId } = req.body;
-        console.log('1. 📥 Dados recebidos:', { usuarioId, aulaId, cursoId });
+        console.log('Dados recebidos:', { usuarioId, aulaId, cursoId });
 
-        // Validação básica
+        // Validação
         if (!usuarioId || !aulaId || !cursoId) {
-            console.log('❌ Dados incompletos');
             return res.status(400).json({ 
                 error: 'Dados incompletos',
-                required: ['usuarioId', 'aulaId', 'cursoId'],
                 received: { usuarioId, aulaId, cursoId }
             });
         }
 
-        console.log('2. 🔍 Verificando se a aula existe...');
-        // Verificar se a aula existe (forma mais simples)
-        const aulaExiste = await prisma.aula.findFirst({
-            where: { id: aulaId }
+        // Converter para números
+        const userId = parseInt(usuarioId);
+        const aula = parseInt(aulaId);
+        const curso = parseInt(cursoId);
+
+        console.log('🔍 Verificando aula...');
+        const aulaExiste = await prisma.aula.findUnique({
+            where: { id: aula }
         });
 
         if (!aulaExiste) {
-            console.log(`❌ Aula ${aulaId} não encontrada`);
-            return res.status(404).json({ 
-                error: 'Aula não encontrada',
-                aulaId: aulaId
-            });
+            return res.status(404).json({ error: 'Aula não encontrada' });
         }
 
-        console.log('3. ✅ Aula encontrada:', aulaExiste.titulo);
+        console.log('✅ Aula encontrada:', aulaExiste.titulo);
 
-        console.log('4. 🗃️ Tentando criar/atualizar progresso...');
-        
-        // TENTATIVA 1: Usar create para evitar problemas com upsert
+        // Criar ou atualizar progresso
         try {
-            const progressoAula = await prisma.progressoAula.create({
+            const progresso = await prisma.progressoAula.create({
                 data: {
-                    usuarioId: parseInt(usuarioId),
-                    aulaId: parseInt(aulaId),
-                    cursoId: parseInt(cursoId),
+                    usuarioId: userId,
+                    aulaId: aula,
+                    cursoId: curso,
                     concluida: true,
                     dataConclusao: new Date()
                 }
             });
-            
-            console.log('✅ Progresso criado com sucesso (CREATE)');
-
-        } catch (createError) {
-            // Se já existe, tentar atualizar
-            if (createError.code === 'P2002') {
-                console.log('⚠️ Progresso já existe, atualizando...');
-                
-                const progressoAula = await prisma.progressoAula.update({
+            console.log('✅ Progresso criado');
+        } catch (error) {
+            if (error.code === 'P2002') {
+                // Já existe, atualizar
+                await prisma.progressoAula.update({
                     where: {
                         usuarioId_aulaId: {
-                            usuarioId: parseInt(usuarioId),
-                            aulaId: parseInt(aulaId)
+                            usuarioId: userId,
+                            aulaId: aula
                         }
                     },
                     data: {
                         concluida: true,
                         dataConclusao: new Date(),
-                        cursoId: parseInt(cursoId)
+                        cursoId: curso
                     }
                 });
-                
-                console.log('✅ Progresso atualizado com sucesso (UPDATE)');
+                console.log('✅ Progresso atualizado');
             } else {
-                throw createError;
+                throw error;
             }
         }
 
-        console.log('5. 📈 Calculando progresso do curso...');
-        
-        // Calcular progresso de forma mais simples
+        // Calcular progresso do curso
         const totalAulas = await prisma.aula.count({
             where: { 
                 modulo: { 
-                    cursoId: parseInt(cursoId) 
+                    cursoId: curso 
                 }
             }
         });
 
         const aulasConcluidas = await prisma.progressoAula.count({
             where: { 
-                usuarioId: parseInt(usuarioId),
-                cursoId: parseInt(cursoId),
+                usuarioId: userId,
+                cursoId: curso,
                 concluida: true
             }
         });
 
         const progressoCurso = totalAulas > 0 ? Math.round((aulasConcluidas / totalAulas) * 100) : 0;
 
-        console.log(`6. 📊 Progresso calculado: ${progressoCurso}% (${aulasConcluidas}/${totalAulas} aulas)`);
-
-        // Atualizar progresso do curso (forma simplificada)
+        // Atualizar progresso do curso
         try {
             await prisma.progressoCurso.upsert({
                 where: {
                     usuarioId_cursoId: {
-                        usuarioId: parseInt(usuarioId),
-                        cursoId: parseInt(cursoId)
+                        usuarioId: userId,
+                        cursoId: curso
                     }
                 },
                 update: {
                     progresso: progressoCurso,
                     concluido: progressoCurso >= 100,
-                    ultimaAula: parseInt(aulaId),
+                    ultimaAula: aula,
                     atualizadoEm: new Date()
                 },
                 create: {
-                    usuarioId: parseInt(usuarioId),
-                    cursoId: parseInt(cursoId),
+                    usuarioId: userId,
+                    cursoId: curso,
                     progresso: progressoCurso,
                     concluido: progressoCurso >= 100,
-                    ultimaAula: parseInt(aulaId),
+                    ultimaAula: aula,
                     criadoEm: new Date(),
                     atualizadoEm: new Date()
                 }
             });
-            
             console.log('✅ Progresso do curso atualizado');
-        } catch (cursoError) {
-            console.warn('⚠️ Erro ao atualizar progresso do curso:', cursoError.message);
-            // Continua mesmo com erro no progresso do curso
+        } catch (error) {
+            console.warn('⚠️ Erro ao atualizar progresso do curso:', error.message);
         }
 
-        console.log('7. 🎉 Progresso registrado com sucesso!');
+        console.log(`📊 Progresso final: ${progressoCurso}% (${aulasConcluidas}/${totalAulas})`);
 
+        // Resposta de sucesso
         res.json({
             success: true,
+            message: 'Aula concluída com sucesso!',
             progresso: progressoCurso,
             concluido: progressoCurso >= 100,
             aulasConcluidas,
-            totalAulas,
-            message: 'Aula concluída com sucesso!'
+            totalAulas
         });
 
     } catch (error) {
-        console.error('💥 ERRO COMPLETO AO REGISTRAR PROGRESSO:', error);
-        console.error('Código do erro:', error.code);
-        console.error('Meta:', error.meta);
-        
+        console.error('💥 Erro no progresso:', error);
         res.status(500).json({ 
             error: 'Erro ao salvar progresso',
             details: error.message,
-            code: error.code,
-            step: 'progresso_aula'
+            code: error.code
         });
     }
 });
+
 // ========== ROTAS EXISTENTES ========== //
 
 // ✅ RANKING
@@ -987,6 +969,113 @@ app.post('/api/debug/create-test-data', async (req, res) => {
     }
 });
 
+// ✅ TESTE: Endpoint GET para testar progresso
+app.get('/api/teste/progresso', async (req, res) => {
+    try {
+        console.log('🧪 TESTE: Simulando progresso para aula 1');
+        
+        // Dados fixos para teste
+        const usuarioId = 1;
+        const aulaId = 1;
+        const cursoId = 1;
+
+        console.log('Dados de teste:', { usuarioId, aulaId, cursoId });
+
+        // Verificar se a aula existe
+        const aulaExiste = await prisma.aula.findFirst({
+            where: { id: aulaId }
+        });
+
+        if (!aulaExiste) {
+            return res.json({ 
+                success: false,
+                error: `Aula ${aulaId} não existe`
+            });
+        }
+
+        console.log('✅ Aula encontrada:', aulaExiste.titulo);
+
+        // Tentar criar progresso
+        try {
+            const progresso = await prisma.progressoAula.create({
+                data: {
+                    usuarioId: usuarioId,
+                    aulaId: aulaId,
+                    cursoId: cursoId,
+                    concluida: true,
+                    dataConclusao: new Date()
+                }
+            });
+
+            return res.json({
+                success: true,
+                message: '✅ Progresso criado com sucesso!',
+                progresso: progresso
+            });
+
+        } catch (error) {
+            if (error.code === 'P2002') {
+                return res.json({
+                    success: true,
+                    message: '✅ Progresso já existe (tudo funcionando!)',
+                    error_code: error.code
+                });
+            }
+            throw error;
+        }
+
+    } catch (error) {
+        console.error('❌ Erro no teste:', error);
+        return res.status(500).json({
+            success: false,
+            error: error.message,
+            code: error.code,
+            meta: error.meta
+        });
+    }
+});
+
+// ✅ TESTE 2: Ver progressos existentes
+app.get('/api/teste/progressos-existem', async (req, res) => {
+    try {
+        const progressos = await prisma.progressoAula.findMany({
+            take: 10
+        });
+
+        res.json({
+            success: true,
+            total: progressos.length,
+            progressos: progressos
+        });
+    } catch (error) {
+        res.json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// ✅ TESTE 3: Verificar estrutura da tabela progresso_aulas
+app.get('/api/debug/estrutura-progresso', async (req, res) => {
+    try {
+        const colunas = await prisma.$queryRaw`
+            SELECT column_name, data_type, is_nullable
+            FROM information_schema.columns 
+            WHERE table_name = 'progresso_aulas'
+        `;
+
+        res.json({
+            success: true,
+            colunas: colunas
+        });
+    } catch (error) {
+        res.json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
 // ========== INICIALIZAÇÃO ========== //
 
 async function startServer() {
@@ -1009,6 +1098,8 @@ async function startServer() {
             console.log(`✅  GET /api/health`);
             console.log(`🔍  GET /api/debug/database`);
             console.log(`🔍  POST /api/debug/create-test-data`);
+            console.log(`🧪  GET /api/teste/progresso`);
+            console.log(`🧪  GET /api/teste/progressos-existem`);
         });
 
     } catch (error) {
@@ -1027,4 +1118,3 @@ process.on('SIGINT', async () => {
 startServer();
 
 export default app;
-
