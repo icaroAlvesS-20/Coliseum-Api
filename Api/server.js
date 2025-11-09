@@ -14,12 +14,14 @@ const prisma = new PrismaClient({
 });
 
 // ✅ Configuração CORS
+// ✅ CONFIGURAÇÃO CORS CORRIGIDA
 const corsOptions = {
   origin: [
-    'https://coliseum-1fxfsxmn3-icaroass-projects.vercel.app',
+    'https://coliseum-g7atjk4ho-icaroass-projects.vercel.app',
+    'https://coliseum-*.vercel.app',
+    'https://coliseum-*-icaroass-projects.vercel.app',
     'http://localhost:3000',
     'http://localhost:5173',
-    'https://*.vercel.app',
     '*'
   ],
   credentials: true,
@@ -29,14 +31,40 @@ const corsOptions = {
     'Authorization', 
     'X-Requested-With',
     'Accept',
-    'Origin',
-    'Access-Control-Allow-Headers',
-    'Access-Control-Request-Headers',
-    'Access-Control-Allow-Origin'
+    'Origin'
   ],
   optionsSuccessStatus: 200
 };
 
+// Aplicar CORS antes de todas as rotas
+app.use(cors(corsOptions));
+
+// ✅ MIDDLEWARE PARA HEADERS CORS MANUAIS
+app.use((req, res, next) => {
+  const allowedOrigins = [
+    'https://coliseum-g7atjk4ho-icaroass-projects.vercel.app',
+    'https://coliseum-*-vercel.app',
+    'http://localhost:3000',
+    'http://localhost:5173'
+  ];
+  
+  const origin = req.headers.origin;
+  if (allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+  } else {
+    res.header('Access-Control-Allow-Origin', '*');
+  }
+  
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+  
+  next();
+});
 // ========== MIDDLEWARES ========== //
 
 app.use(cors(corsOptions));
@@ -1040,3 +1068,4 @@ process.on('SIGINT', async () => {
 });
 
 startServer();
+
