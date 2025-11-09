@@ -38,20 +38,25 @@ const corsOptions = {
 
 // Aplicar CORS antes de todas as rotas
 // ✅ CONFIGURAÇÃO CORS DE EMERGÊNCIA
+// ✅ CONFIGURAÇÃO CORS DE EMERGÊNCIA NO BACKEND
+const cors = require('cors');
+
+// Permitir todas as origens temporariamente
 app.use(cors({
-  origin: '*', // ✅ Permite TODAS as origens temporariamente
+  origin: '*',
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin']
 }));
 
-// ✅ Middleware manual para CORS
+// Middleware manual para garantir CORS
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Origin');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Origin, X-Requested-With');
   res.header('Access-Control-Allow-Credentials', 'true');
   
+  // Responder a preflight requests
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
@@ -1061,5 +1066,6 @@ process.on('SIGINT', async () => {
 });
 
 startServer();
+
 
 
