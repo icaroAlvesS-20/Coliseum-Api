@@ -37,26 +37,19 @@ const corsOptions = {
 };
 
 // Aplicar CORS antes de todas as rotas
-app.use(cors(corsOptions));
+// ✅ CONFIGURAÇÃO CORS DE EMERGÊNCIA
+app.use(cors({
+  origin: '*', // ✅ Permite TODAS as origens temporariamente
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
+}));
 
-// ✅ MIDDLEWARE PARA HEADERS CORS MANUAIS
+// ✅ Middleware manual para CORS
 app.use((req, res, next) => {
-  const allowedOrigins = [
-    'https://coliseum-g7atjk4ho-icaroass-projects.vercel.app',
-    'https://coliseum-*-vercel.app',
-    'http://localhost:3000',
-    'http://localhost:5173'
-  ];
-  
-  const origin = req.headers.origin;
-  if (allowedOrigins.includes(origin)) {
-    res.header('Access-Control-Allow-Origin', origin);
-  } else {
-    res.header('Access-Control-Allow-Origin', '*');
-  }
-  
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Origin');
   res.header('Access-Control-Allow-Credentials', 'true');
   
   if (req.method === 'OPTIONS') {
@@ -1068,4 +1061,5 @@ process.on('SIGINT', async () => {
 });
 
 startServer();
+
 
