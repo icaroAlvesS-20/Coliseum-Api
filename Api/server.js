@@ -64,7 +64,6 @@ app.get('/api/cursos', async (req, res) => {
         console.log('📚 Buscando todos os cursos...');
 
         const cursos = await prisma.curso.findMany({
-            where: { ativo: true },
             include: {
                 modulos: {
                     include: {
@@ -141,7 +140,7 @@ app.post('/api/cursos', async (req, res) => {
     try {
         console.log('🎯 Criando novo curso...', req.body);
         
-        const { titulo, descricao, materia, categoria, nivel, duracao, imagem, ativo, modulos } = req.body;
+        const { titulo, descricao, materia, categoria, nivel, duracao, imagem, modulos } = req.body;
 
         // Validar dados obrigatórios
         if (!titulo || !materia || !categoria || !nivel || !duracao) {
@@ -162,8 +161,7 @@ app.post('/api/cursos', async (req, res) => {
                     categoria: categoria.trim(),
                     nivel: nivel.trim(),
                     duracao: parseInt(duracao),
-                    imagem: imagem?.trim() || null,
-                    ativo: ativo !== undefined ? ativo : true
+                    imagem: imagem?.trim() || null
                 }
             });
 
@@ -231,7 +229,7 @@ app.post('/api/cursos', async (req, res) => {
 app.put('/api/cursos/:id', async (req, res) => {
     try {
         const cursoId = parseInt(req.params.id);
-        const { titulo, descricao, materia, categoria, nivel, duracao, imagem, ativo } = req.body;
+        const { titulo, descricao, materia, categoria, nivel, duracao, imagem } = req.body;
 
         console.log(`✏️ Atualizando curso ID: ${cursoId}`, req.body);
 
@@ -259,7 +257,6 @@ app.put('/api/cursos/:id', async (req, res) => {
                 ...(nivel && { nivel: nivel.trim() }),
                 ...(duracao && { duracao: parseInt(duracao) }),
                 ...(imagem !== undefined && { imagem: imagem?.trim() || null }),
-                ...(ativo !== undefined && { ativo: ativo }),
                 atualizadoEm: new Date()
             },
             include: {
@@ -432,7 +429,6 @@ app.get('/api/aulas/:id', async (req, res) => {
 app.get('/api/aulas', async (req, res) => {
     try {
         const aulas = await prisma.aula.findMany({
-            where: { ativo: true },
             include: {
                 modulo: {
                     include: {
@@ -838,51 +834,107 @@ app.delete('/api/videos/:id', async (req, res) => {
     }
 });
 
-// ========== ROTA DE DEBUG ========== //
+// ========== ROTAS DE DEBUG ========== //
 
-// ✅ ROTA PARA VERIFICAR CURSO ESPECÍFICO
-app.get('/api/debug/curso/:id', async (req, res) => {
+// ✅ DEBUG: Verificar estrutura do banco
+app.get('/api/debug/database', async (req, res) => {
     try {
-        const cursoId = parseInt(req.params.id);
-        console.log(`🔍 Debug: Verificando curso ID: ${cursoId}...`);
+        console.log('🔍 Debug: Verificando estrutura do banco...');
         
-        const curso = await prisma.curso.findUnique({
-            where: { id: cursoId },
-            include: {
-                modulos: {
-                    include: {
-                        aulas: true
-                    }
-                }
-            }
+        // Verificar tabelas
+        const tabelas = await prisma.$queryRaw`
+            SELECT table_name 
+            FROM information_schema.tables 
+            WHERE table_schema = 'public'
+        `;
+
+        // Verificar se há dados
+        const totalCursos = await prisma.curso.count();
+        const totalModulos = await prisma.modulo.count();
+        const totalAulas = await prisma.aula.count();
+        const totalUsuarios = await prisma.usuario.count();
+
+        // Verificar aula específica
+        const aula1 = await prisma.aula.findUnique({
+            where: { id: 1 }
         });
 
-        if (!curso) {
-            return res.json({ 
-                exists: false,
-                message: `Curso ${cursoId} não existe no banco de dados`
-            });
-        }
-
         res.json({
-            exists: true,
-            curso: {
-                id: curso.id,
-                titulo: curso.titulo,
-                ativo: curso.ativo,
-                totalModulos: curso.modulos.length,
-                totalAulas: curso.modulos.reduce((acc, mod) => acc + mod.aulas.length, 0)
+            tabelas,
+            estatisticas: {
+                totalCursos,
+                totalModulos,
+                totalAulas,
+                totalUsuarios
             },
-            modulos: curso.modulos.map(mod => ({
-                id: mod.id,
-                titulo: mod.titulo,
-                ativo: mod.ativo,
-                aulas: mod.aulas.length
-            }))
+            aula1: aula1 || { exists: false },
+            status: 'success'
         });
 
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        console.error('❌ Erro no debug database:', error);
+        res.status(500).json({ 
+            error: error.message,
+            code: error.code
+        });
+    }
+});
+
+// ✅ DEBUG: Criar dados de teste
+app.post('/api/debug/create-test-data', async (req, res) => {
+    try {
+        console.log('🔍 Debug: Criando dados de teste...');
+
+        // Criar um curso de teste
+        const cursoTeste = await prisma.curso.create({
+            data: {
+                titulo: 'Curso de Teste - PHP',
+                descricao: 'Curso para testar o sistema',
+                materia: 'Programação',
+                categoria: 'Backend',
+                nivel: 'Iniciante',
+                duracao: 120,
+                imagem: null
+            }
+        });
+
+        // Criar um módulo
+        const moduloTeste = await prisma.modulo.create({
+            data: {
+                titulo: 'Introdução ao PHP',
+                descricao: 'Primeiros passos com PHP',
+                ordem: 1,
+                cursoId: cursoTeste.id
+            }
+        });
+
+        // Criar uma aula
+        const aulaTeste = await prisma.aula.create({
+            data: {
+                titulo: 'O que é PHP?',
+                descricao: 'Introdução à linguagem PHP',
+                conteudo: '<h2>PHP é uma linguagem de programação</h2><p>Usada para desenvolvimento web...</p>',
+                videoUrl: 'https://www.youtube.com/embed/dQw4w9WgXcQ',
+                duracao: 15,
+                ordem: 1,
+                moduloId: moduloTeste.id
+            }
+        });
+
+        res.json({
+            success: true,
+            curso: cursoTeste,
+            modulo: moduloTeste,
+            aula: aulaTeste,
+            message: 'Dados de teste criados com sucesso!'
+        });
+
+    } catch (error) {
+        console.error('❌ Erro ao criar dados de teste:', error);
+        res.status(500).json({ 
+            error: error.message,
+            code: error.code
+        });
     }
 });
 
@@ -906,7 +958,8 @@ async function startServer() {
             console.log(`✅  GET /api/aulas/:id`);
             console.log(`✅  POST /api/progresso/aula`);
             console.log(`✅  GET /api/health`);
-            console.log(`🔍  GET /api/debug/curso/:id`);
+            console.log(`🔍  GET /api/debug/database`);
+            console.log(`🔍  POST /api/debug/create-test-data`);
         });
 
     } catch (error) {
