@@ -548,9 +548,9 @@ app.get('/api/aulas', async (req, res) => {
     handleError(res, error, 'Erro ao carregar aulas');
   }
 });
+app.options('/api/progresso/aula', cors(corsOptions));
 
-// 📊 POST /api/progresso/aula - Marcar aula como concluída
-app.post('/api/progresso/aula', async (req, res) => {
+app.post('/api/progresso/aula', cors(corsOptions), async (req, res) => {
   try {
     const { usuarioId, aulaId, cursoId } = req.body;
     console.log(`📊 Registrando progresso - Usuário: ${usuarioId}, Aula: ${aulaId}, Curso: ${cursoId}`);
@@ -562,7 +562,6 @@ app.post('/api/progresso/aula', async (req, res) => {
       });
     }
 
-    // Verificar se a aula existe
     const aulaExiste = await prisma.aula.findUnique({
       where: { 
         id: parseInt(aulaId),
@@ -574,7 +573,6 @@ app.post('/api/progresso/aula', async (req, res) => {
       return res.status(404).json({ error: 'Aula não encontrada' });
     }
 
-    // Marca aula como concluída
     const progressoAula = await prisma.progressoAula.upsert({
       where: {
         usuarioId_aulaId: {
@@ -596,7 +594,6 @@ app.post('/api/progresso/aula', async (req, res) => {
       }
     });
 
-    // Calcula progresso do curso
     const totalAulas = await prisma.aula.count({
       where: { 
         modulo: { 
@@ -617,7 +614,6 @@ app.post('/api/progresso/aula', async (req, res) => {
 
     const progressoCurso = totalAulas > 0 ? Math.round((aulasConcluidas / totalAulas) * 100) : 0;
 
-    // Atualiza progresso do curso
     await prisma.progressoCurso.upsert({
       where: {
         usuarioId_cursoId: {
@@ -662,7 +658,6 @@ app.post('/api/progresso/aula', async (req, res) => {
 
 // ========== SISTEMA DE USUÁRIOS ========== //
 
-// 👥 POST /api/usuarios - Login/Cadastro
 app.post('/api/usuarios', async (req, res) => {
   try {
     const { ra, nome, senha, serie, action = 'login' } = req.body;
@@ -719,7 +714,6 @@ app.post('/api/usuarios', async (req, res) => {
   }
 });
 
-// 🏆 GET /api/ranking - Ranking de usuários
 app.get('/api/ranking', async (req, res) => {
   try {
     const usuarios = await prisma.usuario.findMany({
@@ -740,7 +734,6 @@ app.get('/api/ranking', async (req, res) => {
   }
 });
 
-// ✏️ PUT /api/usuarios/:id - Atualizar usuário
 app.put('/api/usuarios/:id', async (req, res) => {
   try {
     const userId = validateId(req.params.id);
@@ -783,7 +776,6 @@ app.put('/api/usuarios/:id', async (req, res) => {
   }
 });
 
-// 🗑️ DELETE /api/usuarios/:id - Excluir usuário
 app.delete('/api/usuarios/:id', async (req, res) => {
   try {
     const userId = validateId(req.params.id);
@@ -793,7 +785,6 @@ app.delete('/api/usuarios/:id', async (req, res) => {
 
     console.log(`🗑️ Excluindo usuário ID: ${userId}`);
 
-    // Verificar se o usuário existe
     const usuarioExistente = await prisma.usuario.findUnique({
       where: { id: userId }
     });
@@ -822,7 +813,6 @@ app.delete('/api/usuarios/:id', async (req, res) => {
 
 // ========== SISTEMA DE VÍDEOS ========== //
 
-// 🎬 GET /api/videos - Listar vídeos
 app.get('/api/videos', async (req, res) => {
   try {
     const videos = await prisma.video.findMany({
@@ -834,12 +824,10 @@ app.get('/api/videos', async (req, res) => {
   }
 });
 
-// ➕ POST /api/videos - Adicionar vídeo
 app.post('/api/videos', async (req, res) => {
   try {
     const { titulo, materia, categoria, url, descricao, duracao } = req.body;
 
-    // Validação
     if (!titulo || !materia || !categoria || !url || !duracao) {
       return res.status(400).json({ 
         error: 'Dados incompletos',
@@ -868,7 +856,6 @@ app.post('/api/videos', async (req, res) => {
   }
 });
 
-// ✏️ PUT /api/videos/:id - Atualizar vídeo
 app.put('/api/videos/:id', async (req, res) => {
   try {
     const videoId = validateId(req.params.id);
@@ -911,7 +898,6 @@ app.put('/api/videos/:id', async (req, res) => {
   }
 });
 
-// 🗑️ DELETE /api/videos/:id - Excluir vídeo
 app.delete('/api/videos/:id', async (req, res) => {
   try {
     const videoId = validateId(req.params.id);
@@ -921,7 +907,6 @@ app.delete('/api/videos/:id', async (req, res) => {
 
     console.log(`🗑️ Excluindo vídeo ID: ${videoId}`);
 
-    // Verificar se o vídeo existe
     const videoExistente = await prisma.video.findUnique({
       where: { id: videoId }
     });
@@ -950,7 +935,6 @@ app.delete('/api/videos/:id', async (req, res) => {
 
 // ========== ROTAS DE DEBUG ========== //
 
-// 🔍 GET /api/debug/curso/:id - Debug de curso
 app.get('/api/debug/curso/:id', async (req, res) => {
   try {
     const cursoId = validateId(req.params.id);
@@ -995,7 +979,6 @@ app.get('/api/debug/curso/:id', async (req, res) => {
 
 // ========== MANUSEIO DE ERROS ========== //
 
-// Middleware de erro global
 app.use((error, req, res, next) => {
   console.error('❌ Erro global:', error);
   res.status(500).json({
@@ -1004,7 +987,6 @@ app.use((error, req, res, next) => {
   });
 });
 
-// Rota não encontrada
 app.use('*', (req, res) => {
   res.status(404).json({
     error: 'Rota não encontrada',
@@ -1082,6 +1064,7 @@ process.on('SIGINT', async () => {
 });
 
 startServer();
+
 
 
 
