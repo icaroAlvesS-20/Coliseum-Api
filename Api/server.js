@@ -13,15 +13,16 @@ const prisma = new PrismaClient({
   errorFormat: 'minimal',
 });
 
-// ✅ Configuração CORS
+// ✅ Configuração CORS - ATUALIZE PARA:
 const corsOptions = {
   origin: [
+    'https://coliseum-8pdkrqgrq-icaroass-projects.vercel.app', // ← DOMÍNIO DO ERRO
     'https://coliseum-g7atjk4ho-icaroass-projects.vercel.app',
     'https://coliseum-*.vercel.app',
     'https://coliseum-*-icaroass-projects.vercel.app',
     'http://localhost:3000',
-    'http://localhost:5173',
-    '*'
+    'http://localhost:5173'
+    // REMOVA o '*' - ele não funciona com credentials: true
   ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
@@ -35,10 +36,10 @@ const corsOptions = {
   optionsSuccessStatus: 200
 };
 
-// Aplicar CORS - USE A IMPORTAÇÃO ES6
+// ✅ APLIQUE O CORS CORRETAMENTE (ADICIONE ESTA LINHA)
 app.use(cors(corsOptions));
+app.use(express.json()); // ← Isso deve vir DEPOIS do CORS
 
-// Middleware manual para garantir CORS
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
@@ -1054,6 +1055,7 @@ process.on('SIGINT', async () => {
 });
 
 startServer();
+
 
 
 
