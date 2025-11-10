@@ -13,17 +13,33 @@ const prisma = new PrismaClient({
   errorFormat: 'minimal',
 });
 
-// ✅ Configuração CORS - ATUALIZE PARA:
+// ✅ CONFIGURAÇÃO CORS FLEXÍVEL - SUBSTITUA POR ESTA:
 const corsOptions = {
-  origin: [
-    'https://coliseum-8pdkrqgrq-icaroass-projects.vercel.app', // ← DOMÍNIO DO ERRO
-    'https://coliseum-g7atjk4ho-icaroass-projects.vercel.app',
-    'https://coliseum-*.vercel.app',
-    'https://coliseum-*-icaroass-projects.vercel.app',
-    'http://localhost:3000',
-    'http://localhost:5173'
-    // REMOVA o '*' - ele não funciona com credentials: true
-  ],
+  origin: function (origin, callback) {
+    // Permitir requests sem origin (como mobile apps ou curl)
+    if (!origin) return callback(null, true);
+    
+    // Lista de domínios permitidos
+    const allowedOrigins = [
+      /https:\/\/coliseum-.*-icaroass-projects\.vercel\.app$/,
+      /https:\/\/coliseum-.*\.vercel\.app$/,
+      'http://localhost:3000',
+      'http://localhost:5173'
+    ];
+    
+    // Verificar se a origin está na lista de permitidos
+    if (allowedOrigins.some(pattern => {
+      if (typeof pattern === 'string') {
+        return origin === pattern;
+      }
+      return pattern.test(origin);
+    })) {
+      return callback(null, true);
+    } else {
+      console.log('🚫 CORS bloqueado para origin:', origin);
+      return callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: [
@@ -36,22 +52,33 @@ const corsOptions = {
   optionsSuccessStatus: 200
 };
 
-// ✅ APLIQUE O CORS CORRETAMENTE (ADICIONE ESTA LINHA)
+// Aplicar CORS
 app.use(cors(corsOptions));
-app.use(express.json()); // ← Isso deve vir DEPOIS do CORS
+app.use(express.json());
 
+// ✅ MIDDLEWARE CORS MANUAL (adicione como backup)
 app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
+  const origin = req.headers.origin;
+  
+  // Permitir qualquer domínio do Vercel
+  if (origin && origin.includes('vercel.app')) {
+    res.header('Access-Control-Allow-Origin', origin);
+  } else {
+    res.header('Access-Control-Allow-Origin', 'https://coliseum-g7atjk4ho-icaroass-projects.vercel.app');
+  }
+  
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Origin, X-Requested-With');
   res.header('Access-Control-Allow-Credentials', 'true');
   
+  // Responder a preflight requests
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
   
   next();
 });
+
 // ========== MIDDLEWARES ========== //
 
 app.use(cors(corsOptions));
@@ -1055,6 +1082,7 @@ process.on('SIGINT', async () => {
 });
 
 startServer();
+
 
 
 
