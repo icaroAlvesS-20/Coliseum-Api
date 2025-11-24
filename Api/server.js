@@ -660,7 +660,7 @@ app.post('/api/progresso/aula', cors(corsOptions), async (req, res) => {
 
 app.post('/api/usuarios', async (req, res) => {
   try {
-    const { ra, nome, senha, serie, action = 'login' } = req.body;
+    const { ra, nome, senha, serie, curso, action = 'login' } = req.body;
 
     // Validação básica
     if (!ra || !senha) {
@@ -668,9 +668,14 @@ app.post('/api/usuarios', async (req, res) => {
     }
 
     if (action === 'cadastro') {
-      if (!nome || !serie) {
-        return res.status(400).json({ error: 'Nome e série são obrigatórios para cadastro' });
+      if (!nome || !serie || !curso) {
+        return res.status(400).json({ 
+          error: 'Nome, série e curso são obrigatórios para cadastro',
+          required: ['nome', 'serie', 'curso']
+        });
       }
+
+      console.log('📝 Criando novo usuário:', { ra, nome, serie, curso });
 
       const novoUsuario = await prisma.usuario.create({
         data: {
@@ -678,10 +683,13 @@ app.post('/api/usuarios', async (req, res) => {
           nome: nome.trim(),
           senha: senha,
           serie: serie.toString().trim(),
+          curso: curso.trim(), // ✅ ADICIONAR ESTA LINHA
           pontuacao: 0,
           desafiosCompletados: 0
         }
       });
+
+      console.log('✅ Usuário criado com sucesso:', novoUsuario);
 
       res.json({
         success: true,
@@ -689,6 +697,7 @@ app.post('/api/usuarios', async (req, res) => {
         usuario: novoUsuario
       });
     } else {
+      // Código de login permanece o mesmo...
       const usuario = await prisma.usuario.findFirst({
         where: {
           ra: ra.toString().trim(),
@@ -722,12 +731,14 @@ app.get('/api/ranking', async (req, res) => {
         nome: true,
         ra: true,
         serie: true,
+        curso: true, // ✅ ADICIONAR ESTE CAMPO
         pontuacao: true,
         desafiosCompletados: true,
       },
       orderBy: { pontuacao: 'desc' }
     });
 
+    console.log(`📊 Ranking carregado: ${usuarios.length} usuários`);
     res.json(usuarios);
   } catch (error) {
     handleError(res, error, 'Erro ao carregar ranking');
@@ -741,7 +752,7 @@ app.put('/api/usuarios/:id', async (req, res) => {
       return res.status(400).json({ error: 'ID do usuário inválido' });
     }
 
-    const { nome, ra, serie, pontuacao, desafiosCompletados } = req.body;
+    const { nome, ra, serie, curso, pontuacao, desafiosCompletados } = req.body;
     console.log(`✏️ Atualizando usuário ID: ${userId}`, req.body);
 
     const updateData = { atualizadoEm: new Date() };
@@ -750,6 +761,7 @@ app.put('/api/usuarios/:id', async (req, res) => {
       nome: (val) => val.trim(),
       ra: (val) => val.toString().trim(),
       serie: (val) => val.trim(),
+      curso: (val) => val.trim(), // ✅ ADICIONAR ESTE CAMPO
       pontuacao: (val) => parseInt(val),
       desafiosCompletados: (val) => parseInt(val)
     };
@@ -760,12 +772,14 @@ app.put('/api/usuarios/:id', async (req, res) => {
       }
     });
 
+    console.log('📤 Dados para atualização:', updateData);
+
     const usuarioAtualizado = await prisma.usuario.update({
       where: { id: userId },
       data: updateData
     });
 
-    console.log(`✅ Usuário atualizado: ${usuarioAtualizado.nome}`);
+    console.log(`✅ Usuário atualizado:`, usuarioAtualizado);
     res.json({
       success: true,
       message: 'Usuário atualizado com sucesso!',
@@ -1064,6 +1078,7 @@ process.on('SIGINT', async () => {
 });
 
 startServer();
+
 
 
 
