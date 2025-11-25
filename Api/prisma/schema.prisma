@@ -14,6 +14,7 @@ model Usuario {
   nome                String
   senha               String
   serie               String
+  curso               String 
   pontuacao           Int                 @default(0)
   desafiosCompletados Int                 @default(0)
   criadoEm            DateTime            @default(now())
@@ -122,3 +123,4 @@ model ProgressoAula {
   @@unique([usuarioId, aulaId])
   @@map("progresso_aulas")
 }
+
