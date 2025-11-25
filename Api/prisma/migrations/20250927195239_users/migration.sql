@@ -5,6 +5,7 @@ CREATE TABLE "public"."Usuario" (
     "serie" TEXT NOT NULL,
     "ra" TEXT NOT NULL,
     "senha" TEXT NOT NULL,
+    "curso" TEXT NOT NULL,
     "criadoEm" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "Usuario_pkey" PRIMARY KEY ("id")
@@ -12,3 +13,4 @@ CREATE TABLE "public"."Usuario" (
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Usuario_ra_key" ON "public"."Usuario"("ra");
+
