@@ -54,13 +54,27 @@ app.use(express.json({
     }
 }));
 
-// ✅ MIDDLEWARE para logging de requests
+// ✅ MIDDLEWARE DE LOGGING PARA DEBUG
 app.use((req, res, next) => {
-    console.log(`[${new Date().toLocaleTimeString()}] ${req.method} ${req.path}`);
-    console.log('📦 Body recebido:', req.body);
-    console.log('📋 Headers:', req.headers['content-type']);
+    console.log(`\n=== NOVA REQUISIÇÃO ===`);
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
+    console.log('📦 Body:', req.body);
+    console.log('📋 Headers:', {
+        'content-type': req.headers['content-type'],
+        'content-length': req.headers['content-length'],
+        'origin': req.headers['origin']
+    });
+    console.log(`=======================\n`);
     next();
 });
+
+// ✅ MIDDLEWARE DE SEGURANÇA PARA BODY PARSING
+app.use(express.json({ 
+    limit: '10mb',
+    strict: true
+}));
+
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // ========== UTILITÁRIOS ========== //
 
@@ -142,35 +156,60 @@ app.get('/api/usuarios', async (req, res) => {
   }
 });
 
-// ✅ ROTA POST /api/usuarios (CADASTRAR NOVO USUÁRIO)
-// ✅ ROTA POST /api/usuarios (CADASTRAR NOVO USUÁRIO) - VERSÃO CORRIGIDA
+// ✅ ROTA POST /api/usuarios - VERSÃO ROBUSTA
 app.post('/api/usuarios', async (req, res) => {
     try {
-        console.log('📝 Recebendo dados para cadastro - Body completo:', req.body);
-        console.log('📋 Headers:', req.headers);
+        console.log('📝 Recebendo requisição POST /api/usuarios');
+        console.log('📦 Body recebido:', req.body);
+        console.log('📋 Content-Type:', req.headers['content-type']);
+        console.log('🔍 Headers:', {
+            'content-type': req.headers['content-type'],
+            'content-length': req.headers['content-length'],
+            'user-agent': req.headers['user-agent']
+        });
 
-        // ✅ VERIFICAÇÃO SEGURA do body
+        // ✅ VERIFICAÇÃO ROBUSTA do body
         if (!req.body || Object.keys(req.body).length === 0) {
+            console.log('❌ Body vazio ou undefined');
             return res.status(400).json({
                 error: 'Body da requisição vazio ou inválido',
-                details: 'Certifique-se de enviar JSON válido'
+                details: 'Certifique-se de enviar JSON válido com Content-Type: application/json'
             });
         }
 
-        const { nome, ra, serie, senha, curso } = req.body;
+        // ✅ DESTRUCTURING SEGURO com valores padrão
+        const { 
+            nome = '', 
+            ra = '', 
+            serie = '', 
+            senha = '', 
+            curso = '' 
+        } = req.body;
 
         console.log('🔍 Dados extraídos:', { nome, ra, serie, curso });
 
-        // Validação dos campos obrigatórios
-        if (!nome || !ra || !serie || !senha || !curso) {
+        // ✅ VALIDAÇÃO COMPLETA
+        const missingFields = [];
+        if (!nome || nome.trim() === '') missingFields.push('nome');
+        if (!ra || ra.toString().trim() === '') missingFields.push('ra');
+        if (!serie || serie.trim() === '') missingFields.push('serie');
+        if (!senha || senha.trim() === '') missingFields.push('senha');
+        if (!curso || curso.trim() === '') missingFields.push('curso');
+
+        if (missingFields.length > 0) {
             return res.status(400).json({
                 error: 'Dados incompletos',
-                required: ['nome', 'ra', 'serie', 'senha', 'curso'],
-                received: { nome, ra, serie, curso }
+                missingFields: missingFields,
+                received: { 
+                    nome: nome || 'Não informado',
+                    ra: ra || 'Não informado', 
+                    serie: serie || 'Não informado',
+                    curso: curso || 'Não informado'
+                }
             });
         }
 
-        // Verificar se RA já existe
+        // ✅ Verificar se RA já existe
         const usuarioExistente = await prisma.usuario.findUnique({
             where: { ra: ra.toString().trim() }
         });
@@ -182,7 +221,7 @@ app.post('/api/usuarios', async (req, res) => {
             });
         }
 
-        // Criar novo usuário
+        // ✅ Criar novo usuário
         const novoUsuario = await prisma.usuario.create({
             data: {
                 nome: nome.trim(),
@@ -197,9 +236,9 @@ app.post('/api/usuarios', async (req, res) => {
             }
         });
 
-        console.log('✅ Usuário criado com sucesso:', novoUsuario.id);
+        console.log('✅ Usuário criado com sucesso - ID:', novoUsuario.id);
 
-        // Retornar dados sem a senha
+        // ✅ Retornar dados sem a senha
         const { senha: _, ...usuarioSemSenha } = novoUsuario;
 
         res.status(201).json({
@@ -210,6 +249,7 @@ app.post('/api/usuarios', async (req, res) => {
 
     } catch (error) {
         console.error('❌ Erro ao criar usuário:', error);
+        console.error('❌ Stack trace:', error.stack);
         
         if (error.code === 'P2002') {
             return res.status(409).json({
@@ -219,7 +259,8 @@ app.post('/api/usuarios', async (req, res) => {
         
         res.status(500).json({
             error: 'Erro ao criar usuário',
-            details: error.message
+            details: error.message,
+            code: error.code
         });
     }
 });
@@ -672,6 +713,7 @@ process.on('SIGINT', async () => {
 });
 
 startServer();
+
 
 
 
