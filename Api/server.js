@@ -13,25 +13,57 @@ const prisma = new PrismaClient({
 });
 
 // ✅ CONFIGURAÇÃO CORS SIMPLIFICADA
+// ✅ CONFIGURAÇÃO CORS CORRIGIDA
 const corsOptions = {
-  origin: [
+  origin: function (origin, callback) {
+    const allowedOrigins = [
+      'https://coliseum-6hm18oy24-icaroass-projects.vercel.app',
+      'https://coliseum-frontend.vercel.app',
+      'https://coliseum-icaroass-projects.vercel.app',
+      'http://localhost:3000',
+      'http://localhost:5173'
+    ];
+    
+    // Permitir requests sem origin (como mobile apps ou curl)
+    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      console.log('🚫 CORS bloqueado para origin:', origin);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+  optionsSuccessStatus: 200,
+  preflightContinue: false
+};
+
+app.use(cors(corsOptions));
+
+// ✅ MIDDLEWARE CORS MANUAL PARA GARANTIR
+app.use((req, res, next) => {
+  const allowedOrigins = [
+    'https://coliseum-6hm18oy24-icaroass-projects.vercel.app',
     'https://coliseum-frontend.vercel.app',
     'https://coliseum-icaroass-projects.vercel.app',
     'http://localhost:3000',
     'http://localhost:5173'
-  ],
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
-  optionsSuccessStatus: 200
-};
-
-app.use(cors(corsOptions));
-app.use(express.json());
-
-// Middleware de log
-app.use((req, res, next) => {
-  console.log(`[${new Date().toLocaleTimeString()}] ${req.method} ${req.path}`, req.body || req.query);
+  ];
+  
+  const origin = req.headers.origin;
+  if (allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+  }
+  
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+  
   next();
 });
 
@@ -629,3 +661,4 @@ process.on('SIGINT', async () => {
 });
 
 startServer();
+
