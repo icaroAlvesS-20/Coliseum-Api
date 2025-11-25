@@ -143,69 +143,85 @@ app.get('/api/usuarios', async (req, res) => {
 });
 
 // ✅ ROTA POST /api/usuarios (CADASTRAR NOVO USUÁRIO)
+// ✅ ROTA POST /api/usuarios (CADASTRAR NOVO USUÁRIO) - VERSÃO CORRIGIDA
 app.post('/api/usuarios', async (req, res) => {
-  try {
-    const { nome, ra, serie, senha, curso, action } = req.body;
+    try {
+        console.log('📝 Recebendo dados para cadastro - Body completo:', req.body);
+        console.log('📋 Headers:', req.headers);
 
-    console.log('📝 Recebendo dados para cadastro:', { nome, ra, serie, curso, action });
+        // ✅ VERIFICAÇÃO SEGURA do body
+        if (!req.body || Object.keys(req.body).length === 0) {
+            return res.status(400).json({
+                error: 'Body da requisição vazio ou inválido',
+                details: 'Certifique-se de enviar JSON válido'
+            });
+        }
 
-    // Validação dos campos obrigatórios
-    if (!nome || !ra || !serie || !senha || !curso) {
-      return res.status(400).json({
-        error: 'Dados incompletos',
-        required: ['nome', 'ra', 'serie', 'senha', 'curso']
-      });
+        const { nome, ra, serie, senha, curso } = req.body;
+
+        console.log('🔍 Dados extraídos:', { nome, ra, serie, curso });
+
+        // Validação dos campos obrigatórios
+        if (!nome || !ra || !serie || !senha || !curso) {
+            return res.status(400).json({
+                error: 'Dados incompletos',
+                required: ['nome', 'ra', 'serie', 'senha', 'curso'],
+                received: { nome, ra, serie, curso }
+            });
+        }
+
+        // Verificar se RA já existe
+        const usuarioExistente = await prisma.usuario.findUnique({
+            where: { ra: ra.toString().trim() }
+        });
+
+        if (usuarioExistente) {
+            return res.status(409).json({
+                error: 'RA já cadastrado no sistema',
+                details: `O RA ${ra} já está em uso por outro usuário.`
+            });
+        }
+
+        // Criar novo usuário
+        const novoUsuario = await prisma.usuario.create({
+            data: {
+                nome: nome.trim(),
+                ra: ra.toString().trim(),
+                serie: serie.trim(),
+                senha: senha.trim(),
+                curso: curso.trim(),
+                pontuacao: 0,
+                desafiosCompletados: 0,
+                criadoEm: new Date(),
+                atualizadoEm: new Date()
+            }
+        });
+
+        console.log('✅ Usuário criado com sucesso:', novoUsuario.id);
+
+        // Retornar dados sem a senha
+        const { senha: _, ...usuarioSemSenha } = novoUsuario;
+
+        res.status(201).json({
+            success: true,
+            message: 'Usuário cadastrado com sucesso!',
+            usuario: usuarioSemSenha
+        });
+
+    } catch (error) {
+        console.error('❌ Erro ao criar usuário:', error);
+        
+        if (error.code === 'P2002') {
+            return res.status(409).json({
+                error: 'RA já cadastrado no sistema'
+            });
+        }
+        
+        res.status(500).json({
+            error: 'Erro ao criar usuário',
+            details: error.message
+        });
     }
-
-    // Verificar se RA já existe
-    const usuarioExistente = await prisma.usuario.findUnique({
-      where: { ra: ra.toString().trim() }
-    });
-
-    if (usuarioExistente) {
-      return res.status(409).json({
-        error: 'RA já cadastrado no sistema',
-        details: `O RA ${ra} já está em uso por outro usuário.`
-      });
-    }
-
-    // Criar novo usuário
-    const novoUsuario = await prisma.usuario.create({
-      data: {
-        nome: nome.trim(),
-        ra: ra.toString().trim(),
-        serie: serie.trim(),
-        senha: senha.trim(), // Em produção, isso deve ser hash!
-        curso: curso.trim(),
-        pontuacao: 0,
-        desafiosCompletados: 0,
-        criadoEm: new Date(),
-        atualizadoEm: new Date()
-      }
-    });
-
-    console.log('✅ Usuário criado com sucesso:', novoUsuario);
-
-    // Retornar dados sem a senha
-    const { senha: _, ...usuarioSemSenha } = novoUsuario;
-
-    res.status(201).json({
-      success: true,
-      message: 'Usuário cadastrado com sucesso!',
-      usuario: usuarioSemSenha
-    });
-
-  } catch (error) {
-    console.error('❌ Erro ao criar usuário:', error);
-    
-    if (error.code === 'P2002') {
-      return res.status(409).json({
-        error: 'RA já cadastrado no sistema'
-      });
-    }
-    
-    handleError(res, error, 'Erro ao criar usuário');
-  }
 });
 
 app.get('/api/ranking', async (req, res) => {
@@ -656,5 +672,6 @@ process.on('SIGINT', async () => {
 });
 
 startServer();
+
 
 
