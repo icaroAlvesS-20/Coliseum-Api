@@ -12,26 +12,14 @@ const prisma = new PrismaClient({
   errorFormat: 'minimal',
 });
 
-// ✅ CONFIGURAÇÃO CORS
+// ✅ CONFIGURAÇÃO CORS SIMPLIFICADA
 const corsOptions = {
-  origin: function (origin, callback) {
-    const allowedOrigins = [
-      /https:\/\/coliseum-.*-icaroass-projects\.vercel\.app$/,
-      /https:\/\/coliseum-.*\.vercel\.app$/,
-      'http://localhost:3000',
-      'http://localhost:5173'
-    ];
-    
-    if (!origin || allowedOrigins.some(pattern => {
-      if (typeof pattern === 'string') return origin === pattern;
-      return pattern.test(origin);
-    })) {
-      callback(null, true);
-    } else {
-      console.log('🚫 CORS bloqueado para origin:', origin);
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
+  origin: [
+    'https://coliseum-frontend.vercel.app',
+    'https://coliseum-icaroass-projects.vercel.app',
+    'http://localhost:3000',
+    'http://localhost:5173'
+  ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
@@ -40,20 +28,6 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 app.use(express.json());
-
-// Middleware de headers CORS
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  if (origin && origin.includes('vercel.app')) {
-    res.header('Access-Control-Allow-Origin', origin);
-  }
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Origin, X-Requested-With');
-  res.header('Access-Control-Allow-Credentials', 'true');
-  
-  if (req.method === 'OPTIONS') return res.status(200).end();
-  next();
-});
 
 // Middleware de log
 app.use((req, res, next) => {
@@ -109,38 +83,103 @@ app.get('/api/health', async (req, res) => {
 
 // ========== SISTEMA DE USUÁRIOS ========== //
 
+// ✅ ROTA GET /api/usuarios (APENAS UMA)
 app.get('/api/usuarios', async (req, res) => {
-    try {
-        console.log('👥 Buscando todos os usuários...');
-        
-        const usuarios = await prisma.usuario.findMany({
-            select: {
-                id: true,
-                nome: true,
-                ra: true,
-                serie: true,
-                curso: true,
-                pontuacao: true,
-                desafiosCompletados: true,
-                criadoEm: true,
-                atualizadoEm: true
-            },
-            orderBy: { criadoEm: 'desc' }
-        });
+  try {
+    console.log('👥 Buscando todos os usuários...');
+    
+    const usuarios = await prisma.usuario.findMany({
+      select: {
+        id: true,
+        nome: true,
+        ra: true,
+        serie: true,
+        curso: true,
+        pontuacao: true,
+        desafiosCompletados: true,
+        criadoEm: true,
+        atualizadoEm: true
+      },
+      orderBy: { criadoEm: 'desc' }
+    });
 
-        console.log(`✅ ${usuarios.length} usuários carregados via /api/usuarios`);
-        console.log('📚 Cursos encontrados:', usuarios.filter(u => u.curso).map(u => u.curso));
-        
-        res.json(usuarios);
-    } catch (error) {
-        console.error('❌ Erro ao carregar usuários:', error);
-        res.status(500).json({ 
-            error: 'Erro ao carregar usuários',
-            details: error.message 
-        });
-    }
+    console.log(`✅ ${usuarios.length} usuários carregados via /api/usuarios`);
+    
+    res.json(usuarios);
+  } catch (error) {
+    console.error('❌ Erro ao carregar usuários:', error);
+    res.status(500).json({ 
+      error: 'Erro ao carregar usuários',
+      details: error.message 
+    });
+  }
 });
 
+// ✅ ROTA POST /api/usuarios (CADASTRAR NOVO USUÁRIO)
+app.post('/api/usuarios', async (req, res) => {
+  try {
+    const { nome, ra, serie, senha, curso, action } = req.body;
+
+    console.log('📝 Recebendo dados para cadastro:', { nome, ra, serie, curso, action });
+
+    // Validação dos campos obrigatórios
+    if (!nome || !ra || !serie || !senha || !curso) {
+      return res.status(400).json({
+        error: 'Dados incompletos',
+        required: ['nome', 'ra', 'serie', 'senha', 'curso']
+      });
+    }
+
+    // Verificar se RA já existe
+    const usuarioExistente = await prisma.usuario.findUnique({
+      where: { ra: ra.toString().trim() }
+    });
+
+    if (usuarioExistente) {
+      return res.status(409).json({
+        error: 'RA já cadastrado no sistema',
+        details: `O RA ${ra} já está em uso por outro usuário.`
+      });
+    }
+
+    // Criar novo usuário
+    const novoUsuario = await prisma.usuario.create({
+      data: {
+        nome: nome.trim(),
+        ra: ra.toString().trim(),
+        serie: serie.trim(),
+        senha: senha.trim(), // Em produção, isso deve ser hash!
+        curso: curso.trim(),
+        pontuacao: 0,
+        desafiosCompletados: 0,
+        criadoEm: new Date(),
+        atualizadoEm: new Date()
+      }
+    });
+
+    console.log('✅ Usuário criado com sucesso:', novoUsuario);
+
+    // Retornar dados sem a senha
+    const { senha: _, ...usuarioSemSenha } = novoUsuario;
+
+    res.status(201).json({
+      success: true,
+      message: 'Usuário cadastrado com sucesso!',
+      usuario: usuarioSemSenha
+    });
+
+  } catch (error) {
+    console.error('❌ Erro ao criar usuário:', error);
+    
+    if (error.code === 'P2002') {
+      return res.status(409).json({
+        error: 'RA já cadastrado no sistema'
+      });
+    }
+    
+    handleError(res, error, 'Erro ao criar usuário');
+  }
+});
 
 app.get('/api/ranking', async (req, res) => {
   try {
@@ -158,34 +197,10 @@ app.get('/api/ranking', async (req, res) => {
     });
 
     console.log(`📊 Ranking carregado: ${usuarios.length} usuários`);
-    console.log('📚 Cursos encontrados:', usuarios.filter(u => u.curso).map(u => u.curso));
     
     res.json(usuarios);
   } catch (error) {
     handleError(res, error, 'Erro ao carregar ranking');
-  }
-});
-
-app.get('/api/usuarios', async (req, res) => {
-  try {
-    const usuarios = await prisma.usuario.findMany({
-      select: {
-        id: true,
-        nome: true,
-        ra: true,
-        serie: true,
-        curso: true,
-        pontuacao: true,
-        desafiosCompletados: true,
-        criadoEm: true,
-      },
-      orderBy: { criadoEm: 'desc' }
-    });
-
-    console.log(`👥 Usuários carregados: ${usuarios.length}`);
-    res.json(usuarios);
-  } catch (error) {
-    handleError(res, error, 'Erro ao carregar usuários');
   }
 });
 
@@ -614,4 +629,3 @@ process.on('SIGINT', async () => {
 });
 
 startServer();
-
