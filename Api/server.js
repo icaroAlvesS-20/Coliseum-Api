@@ -109,94 +109,38 @@ app.get('/api/health', async (req, res) => {
 
 // ========== SISTEMA DE USUÁRIOS ========== //
 
-app.post('/api/usuarios', async (req, res) => {
-  try {
-    const { ra, nome, senha, serie, curso, action = 'login' } = req.body;
-
-    if (!ra || !senha) {
-      return res.status(400).json({ error: 'RA e senha são obrigatórios' });
-    }
-
-    if (action === 'cadastro') {
-      if (!nome || !serie || !curso) {
-        return res.status(400).json({ 
-          error: 'Nome, série e curso são obrigatórios para cadastro',
-          required: ['nome', 'serie', 'curso']
+app.get('/api/usuarios', async (req, res) => {
+    try {
+        console.log('👥 Buscando todos os usuários...');
+        
+        const usuarios = await prisma.usuario.findMany({
+            select: {
+                id: true,
+                nome: true,
+                ra: true,
+                serie: true,
+                curso: true,
+                pontuacao: true,
+                desafiosCompletados: true,
+                criadoEm: true,
+                atualizadoEm: true
+            },
+            orderBy: { criadoEm: 'desc' }
         });
-      }
 
-      console.log('📝 Criando novo usuário:', { ra, nome, serie, curso });
-
-      const novoUsuario = await prisma.usuario.create({
-        data: {
-          ra: ra.toString().trim(),
-          nome: nome.trim(),
-          senha: senha,
-          serie: serie.toString().trim(),
-          curso: curso.trim(),
-          pontuacao: 0,
-          desafiosCompletados: 0
-        }
-      });
-
-      console.log('✅ Usuário criado com sucesso:', novoUsuario);
-
-      res.json({
-        success: true,
-        message: `Cadastro realizado! Bem-vindo, ${nome}!`,
-        usuario: novoUsuario
-      });
-    } else {
-      const usuario = await prisma.usuario.findFirst({
-        where: {
-          ra: ra.toString().trim(),
-          senha: senha
-        }
-      });
-
-      if (!usuario) {
-        return res.status(401).json({ error: 'RA ou senha incorretos' });
-      }
-
-      res.json({
-        success: true,
-        message: `Login realizado! Bem-vindo de volta, ${usuario.nome}!`,
-        usuario: usuario
-      });
+        console.log(`✅ ${usuarios.length} usuários carregados via /api/usuarios`);
+        console.log('📚 Cursos encontrados:', usuarios.filter(u => u.curso).map(u => u.curso));
+        
+        res.json(usuarios);
+    } catch (error) {
+        console.error('❌ Erro ao carregar usuários:', error);
+        res.status(500).json({ 
+            error: 'Erro ao carregar usuários',
+            details: error.message 
+        });
     }
-  } catch (error) {
-    if (error.code === 'P2002') {
-      return res.status(409).json({ error: 'RA já cadastrado' });
-    }
-    handleError(res, error, 'Erro no sistema de usuários');
-  }
 });
 
-// ✅ ROTA PARA MIGRAÇÃO DE USUÁRIOS EXISTENTES
-app.post('/api/migrate-users', async (req, res) => {
-  try {
-    console.log('🔄 Migrando usuários existentes...');
-    
-    // Adicionar campos faltantes aos usuários existentes
-    await prisma.$executeRaw`
-      UPDATE "Usuario" 
-      SET 
-        "pontuacao" = COALESCE("pontuacao", 0),
-        "desafiosCompletados" = COALESCE("desafiosCompletados", 0),
-        "atualizadoEm" = NOW()
-      WHERE "pontuacao" IS NULL OR "desafiosCompletados" IS NULL
-    `;
-
-    console.log('✅ Migração de usuários concluída');
-    
-    res.json({
-      success: true,
-      message: 'Migração de usuários concluída com sucesso!'
-    });
-  } catch (error) {
-    handleError(res, error, 'Erro na migração de usuários');
-  }
-});
 
 app.get('/api/ranking', async (req, res) => {
   try {
@@ -670,3 +614,4 @@ process.on('SIGINT', async () => {
 });
 
 startServer();
+
