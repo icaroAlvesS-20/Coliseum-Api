@@ -1,4 +1,4 @@
-// schema.prisma - VERIFIQUE SE ESTÁ COMPLETO
+// schema.prisma
 generator client {
   provider = "prisma-client-js"
 }
@@ -14,7 +14,7 @@ model Usuario {
   nome                String
   senha               String
   serie               String
-  curso               String?
+  curso               String              @default("matematica")
   pontuacao           Int                 @default(0)
   desafiosCompletados Int                 @default(0)
   criadoEm            DateTime            @default(now())
@@ -23,7 +23,7 @@ model Usuario {
   progressosCursos    ProgressoCurso[]
   progressosAulas     ProgressoAula[]
 
-  @@map("usuarios")
+  @@map("Usuario")
 }
 
 model Video {
@@ -123,5 +123,3 @@ model ProgressoAula {
   @@unique([usuarioId, aulaId])
   @@map("progresso_aulas")
 }
-
-
