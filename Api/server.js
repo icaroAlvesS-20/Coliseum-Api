@@ -668,7 +668,7 @@ app.post('/api/usuarios', async (req, res) => {
     }
 
     if (action === 'cadastro') {
-      if (!nome || !serie || !curso) {
+      if (!nome || !serie || !curso) { // ✅ VALIDANDO CURSO
         return res.status(400).json({ 
           error: 'Nome, série e curso são obrigatórios para cadastro',
           required: ['nome', 'serie', 'curso']
@@ -683,7 +683,7 @@ app.post('/api/usuarios', async (req, res) => {
           nome: nome.trim(),
           senha: senha,
           serie: serie.toString().trim(),
-          curso: curso.trim(), // ✅ ADICIONAR ESTA LINHA
+          curso: curso.trim(), // ✅ SALVANDO CURSO
           pontuacao: 0,
           desafiosCompletados: 0
         }
@@ -697,23 +697,6 @@ app.post('/api/usuarios', async (req, res) => {
         usuario: novoUsuario
       });
     } else {
-      // Código de login permanece o mesmo...
-      const usuario = await prisma.usuario.findFirst({
-        where: {
-          ra: ra.toString().trim(),
-          senha: senha
-        }
-      });
-
-      if (!usuario) {
-        return res.status(401).json({ error: 'RA ou senha incorretos' });
-      }
-
-      res.json({
-        success: true,
-        message: `Login realizado! Bem-vindo de volta, ${usuario.nome}!`,
-        usuario: usuario
-      });
     }
   } catch (error) {
     if (error.code === 'P2002') {
@@ -754,7 +737,7 @@ app.put('/api/usuarios/:id', async (req, res) => {
       return res.status(400).json({ error: 'ID do usuário inválido' });
     }
 
-    const { nome, ra, serie, curso, pontuacao, desafiosCompletados } = req.body;
+    const { nome, ra, serie, curso, pontuacao, desafiosCompletados } = req.body; // ✅ ADICIONAR CURSO
     console.log(`✏️ Atualizando usuário ID: ${userId}`, req.body);
 
     const updateData = { atualizadoEm: new Date() };
@@ -1080,6 +1063,7 @@ process.on('SIGINT', async () => {
 });
 
 startServer();
+
 
 
 
