@@ -5,7 +5,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-     "build": "npm install && npx prisma generate && npx prisma db push --accept-data-loss"
+     "build": "npm install && npx prisma generate && npx prisma db push --accept-data-loss",
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push --accept-data-loss",
     "prisma:studio": "prisma studio"
@@ -22,4 +22,5 @@
     "schema": "./prisma/schema.prisma"
   }
 }
+
 
