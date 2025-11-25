@@ -731,7 +731,7 @@ app.get('/api/ranking', async (req, res) => {
         nome: true,
         ra: true,
         serie: true,
-        curso: true, // ✅ ADICIONAR ESTE CAMPO
+        curso: true, // ✅ GARANTIR QUE ESTE CAMPO ESTÁ INCLUÍDO
         pontuacao: true,
         desafiosCompletados: true,
       },
@@ -739,6 +739,8 @@ app.get('/api/ranking', async (req, res) => {
     });
 
     console.log(`📊 Ranking carregado: ${usuarios.length} usuários`);
+    console.log(`📚 Cursos encontrados:`, usuarios.map(u => u.curso).filter(Boolean));
+    
     res.json(usuarios);
   } catch (error) {
     handleError(res, error, 'Erro ao carregar ranking');
@@ -1078,6 +1080,7 @@ process.on('SIGINT', async () => {
 });
 
 startServer();
+
 
 
 
