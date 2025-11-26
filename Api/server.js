@@ -12,20 +12,22 @@ const prisma = new PrismaClient({
   errorFormat: 'minimal',
 });
 
-// ✅ CONFIGURAÇÃO CORS SIMPLIFICADA
-// ✅ CONFIGURAÇÃO CORS CORRIGIDA
+// ✅ CONFIGURAÇÃO CORS COMPLETA E SIMPLIFICADA
+const allowedOrigins = [
+  'https://coliseum-adm.vercel.app',
+  'https://coliseum-6hm18oy24-icaroass-projects.vercel.app',
+  'https://coliseum-frontend.vercel.app',
+  'https://coliseum-icaroass-projects.vercel.app',
+  'http://localhost:3000',
+  'http://localhost:5173'
+];
+
 const corsOptions = {
   origin: function (origin, callback) {
-    const allowedOrigins = [
-      'https://coliseum-6hm18oy24-icaroass-projects.vercel.app',
-      'https://coliseum-frontend.vercel.app',
-      'https://coliseum-icaroass-projects.vercel.app',
-      'http://localhost:3000',
-      'http://localhost:5173'
-    ];
+    // Permitir requests sem origin (mobile apps, Postman, etc)
+    if (!origin) return callback(null, true);
     
-    // Permitir requests sem origin (como mobile apps ou curl)
-    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+    if (allowedOrigins.indexOf(origin) !== -1) {
       callback(null, true);
     } else {
       console.log('🚫 CORS bloqueado para origin:', origin);
@@ -35,46 +37,57 @@ const corsOptions = {
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
-  optionsSuccessStatus: 200,
-  preflightContinue: false
+  optionsSuccessStatus: 200
 };
 
+// ✅ APLICAR CORS PRIMEIRO
 app.use(cors(corsOptions));
 
-// ✅ MIDDLEWARE CORS MANUAL PARA GARANTIR
+// ✅ MIDDLEWARE PARA PARSING JSON
 app.use(express.json({ 
-    limit: '10mb',
-    verify: (req, res, buf) => {
-        try {
-            JSON.parse(buf);
-        } catch (e) {
-            console.error('❌ JSON inválido recebido:', e.message);
-            res.status(400).json({ error: 'JSON inválido' });
-        }
+  limit: '10mb',
+  verify: (req, res, buf) => {
+    try {
+      if (buf && buf.length > 0) {
+        JSON.parse(buf);
+      }
+    } catch (e) {
+      console.error('❌ JSON inválido recebido');
+      res.status(400).json({ error: 'JSON inválido' });
     }
+  }
 }));
 
-// ✅ MIDDLEWARE DE LOGGING PARA DEBUG
+// ✅ MIDDLEWARE CORS MANUAL PARA GARANTIR
 app.use((req, res, next) => {
-    console.log(`\n=== NOVA REQUISIÇÃO ===`);
-    console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
-    console.log('📦 Body:', req.body);
-    console.log('📋 Headers:', {
-        'content-type': req.headers['content-type'],
-        'content-length': req.headers['content-length'],
-        'origin': req.headers['origin']
-    });
-    console.log(`=======================\n`);
-    next();
+  const origin = req.headers.origin;
+  
+  if (allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+  }
+  
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  
+  // ✅ LIDAR COM REQUESTS PREFLIGHT
+  if (req.method === 'OPTIONS') {
+    console.log('✅ Preflight request atendida para:', req.path);
+    return res.status(200).end();
+  }
+  
+  next();
 });
 
-// ✅ MIDDLEWARE DE SEGURANÇA PARA BODY PARSING
-app.use(express.json({ 
-    limit: '10mb',
-    strict: true
-}));
-
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+// ✅ MIDDLEWARE DE LOG
+app.use((req, res, next) => {
+  console.log(`\n=== NOVA REQUISIÇÃO ===`);
+  console.log(`[${new Date().toLocaleTimeString()}] ${req.method} ${req.path}`);
+  console.log('📍 Origin:', req.headers.origin);
+  console.log('📦 Body:', req.body);
+  console.log(`=======================\n`);
+  next();
+});
 
 // ========== UTILITÁRIOS ========== //
 
@@ -713,6 +726,7 @@ process.on('SIGINT', async () => {
 });
 
 startServer();
+
 
 
 
