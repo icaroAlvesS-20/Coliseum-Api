@@ -278,6 +278,92 @@ app.post('/api/usuarios', async (req, res) => {
     }
 });
 
+// ✅ ROTA ESPECÍFICA PARA LOGIN
+app.post('/api/login', async (req, res) => {
+    try {
+        console.log('🔐 Recebendo requisição de login');
+        console.log('📦 Body recebido:', req.body);
+        console.log('📋 Content-Type:', req.headers['content-type']);
+
+        // ✅ VERIFICAÇÃO ROBUSTA
+        if (!req.body || Object.keys(req.body).length === 0) {
+            return res.status(400).json({
+                success: false,
+                error: 'Dados de login necessários',
+                details: 'Envie RA e senha'
+            });
+        }
+
+        const { ra, senha, action } = req.body;
+
+        // ✅ VALIDAÇÃO
+        if (!ra || !senha) {
+            return res.status(400).json({
+                success: false,
+                error: 'RA e senha são obrigatórios'
+            });
+        }
+
+        console.log('🔍 Buscando usuário com RA:', ra);
+
+        // ✅ BUSCAR USUÁRIO
+        const usuario = await prisma.usuario.findUnique({
+            where: { 
+                ra: ra.toString().trim() 
+            },
+            select: {
+                id: true,
+                nome: true,
+                ra: true,
+                serie: true,
+                curso: true,
+                senha: true,
+                pontuacao: true,
+                desafiosCompletados: true,
+                criadoEm: true
+            }
+        });
+
+        if (!usuario) {
+            console.log('❌ Usuário não encontrado para RA:', ra);
+            return res.status(404).json({
+                success: false,
+                error: 'Usuário não encontrado',
+                details: 'Verifique seu RA ou cadastre-se'
+            });
+        }
+
+        console.log('✅ Usuário encontrado:', usuario.nome);
+
+        // ✅ VERIFICAR SENHA (em produção, use bcrypt!)
+        if (usuario.senha !== senha.trim()) {
+            console.log('❌ Senha incorreta para usuário:', usuario.nome);
+            return res.status(401).json({
+                success: false,
+                error: 'Senha incorreta'
+            });
+        }
+
+        console.log('✅ Login bem-sucedido para:', usuario.nome);
+
+        // ✅ RETORNAR DADOS DO USUÁRIO (sem a senha)
+        const { senha: _, ...usuarioSemSenha } = usuario;
+
+        res.json({
+            success: true,
+            message: 'Login realizado com sucesso!',
+            usuario: usuarioSemSenha
+        });
+
+    } catch (error) {
+        console.error('❌ Erro no login:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Erro interno no servidor',
+            details: error.message
+        });
+    }
+});
 app.get('/api/ranking', async (req, res) => {
   try {
     const usuarios = await prisma.usuario.findMany({
@@ -726,6 +812,7 @@ process.on('SIGINT', async () => {
 });
 
 startServer();
+
 
 
 
