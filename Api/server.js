@@ -12,7 +12,7 @@ const prisma = new PrismaClient({
   errorFormat: 'minimal',
 });
 
-// ✅ CONFIGURAÇÃO CORS COMPLETA E SIMPLIFICADA
+// ✅ CONFIGURAÇÃO CORS SIMPLIFICADA E EFICIENTE
 const allowedOrigins = [
   'https://coliseum-adm.vercel.app',
   'https://coliseum-6hm18oy24-icaroass-projects.vercel.app',
@@ -22,7 +22,8 @@ const allowedOrigins = [
   'http://localhost:5173'
 ];
 
-const corsOptions = {
+// ✅ APLICAR CORS UMA ÚNICA VEZ
+app.use(cors({
   origin: function (origin, callback) {
     // Permitir requests sem origin (mobile apps, Postman, etc)
     if (!origin) return callback(null, true);
@@ -38,12 +39,9 @@ const corsOptions = {
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
   optionsSuccessStatus: 200
-};
+}));
 
-// ✅ APLICAR CORS PRIMEIRO
-app.use(cors(corsOptions));
-
-// ✅ MIDDLEWARE PARA PARSING JSON
+// ✅ MIDDLEWARE PARA PARSING JSON (mantido igual)
 app.use(express.json({ 
   limit: '10mb',
   verify: (req, res, buf) => {
@@ -58,28 +56,7 @@ app.use(express.json({
   }
 }));
 
-// ✅ MIDDLEWARE CORS MANUAL PARA GARANTIR
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  
-  if (allowedOrigins.includes(origin)) {
-    res.header('Access-Control-Allow-Origin', origin);
-  }
-  
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
-  res.header('Access-Control-Allow-Credentials', 'true');
-  
-  // ✅ LIDAR COM REQUESTS PREFLIGHT
-  if (req.method === 'OPTIONS') {
-    console.log('✅ Preflight request atendida para:', req.path);
-    return res.status(200).end();
-  }
-  
-  next();
-});
-
-// ✅ MIDDLEWARE DE LOG
+// ✅ MIDDLEWARE DE LOG (mantido igual)
 app.use((req, res, next) => {
   console.log(`\n=== NOVA REQUISIÇÃO ===`);
   console.log(`[${new Date().toLocaleTimeString()}] ${req.method} ${req.path}`);
@@ -92,15 +69,32 @@ app.use((req, res, next) => {
 // ========== UTILITÁRIOS ========== //
 
 const validateId = (id) => {
+  if (!id) return null;
   const numId = parseInt(id);
-  return !isNaN(numId) ? numId : null;
+  return !isNaN(numId) && numId > 0 ? numId : null;
 };
 
 const handleError = (res, error, message = 'Erro interno do servidor') => {
   console.error(`❌ ${message}:`, error);
+  
+  // ✅ MELHOR TRATAMENTO DE ERROS DO PRISMA
+  if (error.code === 'P2025') {
+    return res.status(404).json({ 
+      error: 'Registro não encontrado',
+      details: 'O item solicitado não existe ou já foi removido'
+    });
+  }
+  
+  if (error.code === 'P2002') {
+    return res.status(409).json({ 
+      error: 'Conflito de dados',
+      details: 'Já existe um registro com esses dados únicos'
+    });
+  }
+  
   res.status(500).json({ 
     error: message,
-    details: error.message 
+    details: process.env.NODE_ENV === 'development' ? error.message : 'Erro interno'
   });
 };
 
@@ -110,7 +104,8 @@ app.get('/', (req, res) => {
   res.json({
     message: '🚀 API Coliseum Backend - Online',
     status: 'operational',
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    version: '1.0.0'
   });
 });
 
@@ -125,6 +120,7 @@ app.get('/api/health', async (req, res) => {
 
     res.json({ 
       status: 'online',
+      database: 'connected',
       totalUsuarios,
       totalVideos,
       totalCursos,
@@ -137,7 +133,7 @@ app.get('/api/health', async (req, res) => {
 
 // ========== SISTEMA DE USUÁRIOS ========== //
 
-// ✅ ROTA GET /api/usuarios (APENAS UMA)
+// ✅ ROTA GET /api/usuarios - CORRIGIDA
 app.get('/api/usuarios', async (req, res) => {
   try {
     console.log('👥 Buscando todos os usuários...');
@@ -157,30 +153,19 @@ app.get('/api/usuarios', async (req, res) => {
       orderBy: { criadoEm: 'desc' }
     });
 
-    console.log(`✅ ${usuarios.length} usuários carregados via /api/usuarios`);
+    console.log(`✅ ${usuarios.length} usuários carregados`);
     
     res.json(usuarios);
   } catch (error) {
-    console.error('❌ Erro ao carregar usuários:', error);
-    res.status(500).json({ 
-      error: 'Erro ao carregar usuários',
-      details: error.message 
-    });
+    handleError(res, error, 'Erro ao carregar usuários');
   }
 });
 
-// ✅ ROTA POST /api/usuarios - VERSÃO ROBUSTA
+// ✅ ROTA POST /api/usuarios - CORRIGIDA
 app.post('/api/usuarios', async (req, res) => {
     try {
         console.log('📝 Recebendo requisição POST /api/usuarios');
-        console.log('📦 Body recebido:', req.body);
-        console.log('📋 Content-Type:', req.headers['content-type']);
-        console.log('🔍 Headers:', {
-            'content-type': req.headers['content-type'],
-            'content-length': req.headers['content-length'],
-            'user-agent': req.headers['user-agent']
-        });
-
+        
         // ✅ VERIFICAÇÃO ROBUSTA do body
         if (!req.body || Object.keys(req.body).length === 0) {
             console.log('❌ Body vazio ou undefined');
@@ -261,29 +246,14 @@ app.post('/api/usuarios', async (req, res) => {
         });
 
     } catch (error) {
-        console.error('❌ Erro ao criar usuário:', error);
-        console.error('❌ Stack trace:', error.stack);
-        
-        if (error.code === 'P2002') {
-            return res.status(409).json({
-                error: 'RA já cadastrado no sistema'
-            });
-        }
-        
-        res.status(500).json({
-            error: 'Erro ao criar usuário',
-            details: error.message,
-            code: error.code
-        });
+        handleError(res, error, 'Erro ao criar usuário');
     }
 });
 
-// ✅ ROTA ESPECÍFICA PARA LOGIN
+// ✅ ROTA ESPECÍFICA PARA LOGIN - CORRIGIDA
 app.post('/api/login', async (req, res) => {
     try {
         console.log('🔐 Recebendo requisição de login');
-        console.log('📦 Body recebido:', req.body);
-        console.log('📋 Content-Type:', req.headers['content-type']);
 
         // ✅ VERIFICAÇÃO ROBUSTA
         if (!req.body || Object.keys(req.body).length === 0) {
@@ -294,7 +264,7 @@ app.post('/api/login', async (req, res) => {
             });
         }
 
-        const { ra, senha, action } = req.body;
+        const { ra, senha } = req.body;
 
         // ✅ VALIDAÇÃO
         if (!ra || !senha) {
@@ -335,7 +305,7 @@ app.post('/api/login', async (req, res) => {
 
         console.log('✅ Usuário encontrado:', usuario.nome);
 
-        // ✅ VERIFICAR SENHA (em produção, use bcrypt!)
+        // ✅ VERIFICAR SENHA
         if (usuario.senha !== senha.trim()) {
             console.log('❌ Senha incorreta para usuário:', usuario.nome);
             return res.status(401).json({
@@ -356,14 +326,11 @@ app.post('/api/login', async (req, res) => {
         });
 
     } catch (error) {
-        console.error('❌ Erro no login:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Erro interno no servidor',
-            details: error.message
-        });
+        handleError(res, error, 'Erro no login');
     }
 });
+
+// ✅ ROTA RANKING - CORRIGIDA
 app.get('/api/ranking', async (req, res) => {
   try {
     const usuarios = await prisma.usuario.findMany({
@@ -387,6 +354,7 @@ app.get('/api/ranking', async (req, res) => {
   }
 });
 
+// ✅ ROTA PUT USUÁRIOS - CORRIGIDA
 app.put('/api/usuarios/:id', async (req, res) => {
   try {
     const userId = validateId(req.params.id);
@@ -405,6 +373,19 @@ app.put('/api/usuarios/:id', async (req, res) => {
       return res.status(404).json({ error: 'Usuário não encontrado' });
     }
 
+    // ✅ VALIDAÇÃO: Verificar se novo RA já existe (se foi alterado)
+    if (ra && ra !== usuarioExistente.ra) {
+      const raExistente = await prisma.usuario.findUnique({
+        where: { ra: ra.toString().trim() }
+      });
+      if (raExistente) {
+        return res.status(409).json({
+          error: 'RA já está em uso',
+          details: `O RA ${ra} já pertence a outro usuário.`
+        });
+      }
+    }
+
     const updateData = { 
       atualizadoEm: new Date(),
       nome: nome ? nome.trim() : usuarioExistente.nome,
@@ -420,7 +401,8 @@ app.put('/api/usuarios/:id', async (req, res) => {
       data: updateData
     });
 
-    console.log(`✅ Usuário atualizado:`, usuarioAtualizado);
+    console.log(`✅ Usuário atualizado:`, usuarioAtualizado.nome);
+    
     res.json({
       success: true,
       message: 'Usuário atualizado com sucesso!',
@@ -431,6 +413,7 @@ app.put('/api/usuarios/:id', async (req, res) => {
   }
 });
 
+// ✅ ROTA DELETE USUÁRIOS - CORRIGIDA
 app.delete('/api/usuarios/:id', async (req, res) => {
   try {
     const userId = validateId(req.params.id);
@@ -453,12 +436,14 @@ app.delete('/api/usuarios/:id', async (req, res) => {
     });
 
     console.log(`✅ Usuário excluído: ${usuarioExistente.nome}`);
+    
     res.json({
       success: true,
       message: 'Usuário excluído com sucesso!',
       usuarioExcluido: {
         id: usuarioExistente.id,
-        nome: usuarioExistente.nome
+        nome: usuarioExistente.nome,
+        ra: usuarioExistente.ra
       }
     });
   } catch (error) {
@@ -533,10 +518,15 @@ app.post('/api/cursos', async (req, res) => {
   try {
     const { titulo, descricao, materia, categoria, nivel, duracao, imagem, ativo, modulos } = req.body;
 
-    if (!titulo || !materia || !categoria || !nivel || !duracao) {
+    // ✅ VALIDAÇÃO MELHORADA
+    const requiredFields = ['titulo', 'materia', 'categoria', 'nivel', 'duracao'];
+    const missingFields = requiredFields.filter(field => !req.body[field]);
+
+    if (missingFields.length > 0) {
       return res.status(400).json({ 
         error: 'Dados incompletos',
-        required: ['titulo', 'materia', 'categoria', 'nivel', 'duracao']
+        missingFields: missingFields,
+        details: `Campos obrigatórios: ${missingFields.join(', ')}`
       });
     }
 
@@ -554,8 +544,11 @@ app.post('/api/cursos', async (req, res) => {
         }
       });
 
+      // ✅ CRIAÇÃO DE MÓDULOS E AULAS COM TRATAMENTO DE ERRO
       if (modulos?.length > 0) {
         for (const moduloData of modulos) {
+          if (!moduloData.titulo) continue; // Pular módulos sem título
+          
           const modulo = await tx.modulo.create({
             data: {
               titulo: moduloData.titulo.trim(),
@@ -568,6 +561,8 @@ app.post('/api/cursos', async (req, res) => {
 
           if (moduloData.aulas?.length > 0) {
             for (const aulaData of moduloData.aulas) {
+              if (!aulaData.titulo) continue; // Pular aulas sem título
+              
               await tx.aula.create({
                 data: {
                   titulo: aulaData.titulo.trim(),
@@ -648,6 +643,9 @@ app.put('/api/cursos/:id', async (req, res) => {
   }
 });
 
+// ✅ ROTA DELETE CURSOS - CORRIGIDA (ESCOLHA UMA DAS OPÇÕES):
+
+// OPÇÃO 1: DELETE LÓGICO (RECOMENDADO)
 app.delete('/api/cursos/:id', async (req, res) => {
   try {
     const cursoId = validateId(req.params.id);
@@ -656,14 +654,19 @@ app.delete('/api/cursos/:id', async (req, res) => {
     const cursoExistente = await prisma.curso.findUnique({ where: { id: cursoId } });
     if (!cursoExistente) return res.status(404).json({ error: 'Curso não encontrado' });
 
+    // ✅ DELETE LÓGICO (mantém no banco mas marca como inativo)
     await prisma.curso.update({
       where: { id: cursoId },
-      data: { ativo: false, atualizadoEm: new Date() }
+      data: { 
+        ativo: false, 
+        atualizadoEm: new Date() 
+      }
     });
 
     res.json({
       success: true,
-      message: 'Curso excluído com sucesso!'
+      message: 'Curso excluído com sucesso!',
+      cursoId: cursoId
     });
   } catch (error) {
     handleError(res, error, 'Erro ao excluir curso');
@@ -674,7 +677,9 @@ app.delete('/api/cursos/:id', async (req, res) => {
 
 app.get('/api/videos', async (req, res) => {
   try {
-    const videos = await prisma.video.findMany({ orderBy: { materia: 'asc' } });
+    const videos = await prisma.video.findMany({ 
+      orderBy: { materia: 'asc' } 
+    });
     res.json(videos);
   } catch (error) {
     handleError(res, error, 'Erro ao carregar vídeos');
@@ -685,10 +690,15 @@ app.post('/api/videos', async (req, res) => {
   try {
     const { titulo, materia, categoria, url, descricao, duracao } = req.body;
 
-    if (!titulo || !materia || !categoria || !url || !duracao) {
+    // ✅ VALIDAÇÃO MELHORADA
+    const requiredFields = ['titulo', 'materia', 'categoria', 'url', 'duracao'];
+    const missingFields = requiredFields.filter(field => !req.body[field]);
+
+    if (missingFields.length > 0) {
       return res.status(400).json({ 
         error: 'Dados incompletos',
-        required: ['titulo', 'materia', 'categoria', 'url', 'duracao']
+        missingFields: missingFields,
+        details: `Campos obrigatórios: ${missingFields.join(', ')}`
       });
     }
 
@@ -703,7 +713,7 @@ app.post('/api/videos', async (req, res) => {
       }
     });
 
-    res.json({
+    res.status(201).json({
       success: true,
       message: 'Vídeo adicionado com sucesso!',
       video: novoVideo
@@ -717,6 +727,9 @@ app.put('/api/videos/:id', async (req, res) => {
   try {
     const videoId = validateId(req.params.id);
     if (!videoId) return res.status(400).json({ error: 'ID do vídeo inválido' });
+
+    const videoExistente = await prisma.video.findUnique({ where: { id: videoId } });
+    if (!videoExistente) return res.status(404).json({ error: 'Vídeo não encontrado' });
 
     const { titulo, materia, categoria, url, descricao, duracao } = req.body;
     const updateData = {};
@@ -762,27 +775,37 @@ app.delete('/api/videos/:id', async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Vídeo excluído com sucesso!'
+      message: 'Vídeo excluído com sucesso!',
+      videoId: videoId
     });
   } catch (error) {
     handleError(res, error, 'Erro ao excluir vídeo');
   }
 });
 
-// ========== MANUSEIO DE ERROS ========== //
+// ========== MANUSEIO DE ERROS GLOBAL ========== //
 
 app.use((error, req, res, next) => {
-  console.error('❌ Erro global:', error);
+  console.error('❌ Erro global não tratado:', error);
+  
+  if (error.type === 'entity.parse.failed') {
+    return res.status(400).json({
+      error: 'JSON inválido',
+      details: 'O corpo da requisição contém JSON malformado'
+    });
+  }
+  
   res.status(500).json({
     error: 'Erro interno do servidor',
-    message: error.message
+    message: process.env.NODE_ENV === 'development' ? error.message : 'Erro interno'
   });
 });
 
 app.use('*', (req, res) => {
   res.status(404).json({
     error: 'Rota não encontrada',
-    path: req.originalUrl
+    path: req.originalUrl,
+    method: req.method
   });
 });
 
@@ -794,9 +817,10 @@ async function startServer() {
     await prisma.$connect();
     console.log('✅ Conectado ao banco de dados');
     
-    app.listen(PORT, () => {
+    app.listen(PORT, '0.0.0.0', () => {
       console.log(`\n📍 Servidor rodando na porta ${PORT}`);
-      console.log(`🌐 URL: https://coliseum-api.onrender.com`);
+      console.log(`🌐 URL: http://localhost:${PORT}`);
+      console.log(`🌐 Production: https://coliseum-api.onrender.com`);
       console.log(`\n✨ API Coliseum totalmente operacional!`);
     });
   } catch (error) {
@@ -805,16 +829,18 @@ async function startServer() {
   }
 }
 
+// ✅ GRACEFUL SHUTDOWN
 process.on('SIGINT', async () => {
-  console.log('\n🛑 Desligando servidor...');
+  console.log('\n🛑 Desligando servidor graciosamente...');
+  await prisma.$disconnect();
+  console.log('✅ Conexão com banco de dados fechada');
+  process.exit(0);
+});
+
+process.on('SIGTERM', async () => {
+  console.log('\n🛑 Servidor recebeu sinal de término...');
   await prisma.$disconnect();
   process.exit(0);
 });
 
 startServer();
-
-
-
-
-
-
