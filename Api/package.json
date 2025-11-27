@@ -5,10 +5,11 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-     "build": "npm install && npx prisma generate && npx prisma db push --accept-data-loss",
+    "build": "npm install && npx prisma generate && npx prisma db push --accept-data-loss",
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push --accept-data-loss",
-    "prisma:studio": "prisma studio"
+    "prisma:studio": "prisma studio",
+    "healthcheck": "node -e \"import('node-fetch').then(({default: fetch}) => fetch('http://localhost:10000/api/health').then(res => process.exit(res.status === 200 ? 0 : 1)).catch(() => process.exit(1)))\""
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
@@ -22,5 +23,3 @@
     "schema": "./prisma/schema.prisma"
   }
 }
-
-
