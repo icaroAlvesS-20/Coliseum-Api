@@ -10,10 +10,16 @@ const PORT = process.env.PORT || 10000;
 const prisma = new PrismaClient({
   log: ['warn', 'error'],
   errorFormat: 'minimal',
+  datasources: {
+    db: {
+      url: process.env.DATABASE_URL
+    }
+  }
 });
 
-// ✅ CONFIGURAÇÃO CORS ATUALIZADA E COMPLETA
+// ✅ CONFIGURAÇÃO CORS COMPLETA
 const allowedOrigins = [
+  'https://coliseum-7raywxzsu-icaroass-projects.vercel.app',
   'https://coliseum-of2dynr3p-icaroass-projects.vercel.app',
   'https://coliseum-adm.vercel.app',
   'https://coliseum-6hm18oy24-icaroass-projects.vercel.app',
@@ -21,7 +27,8 @@ const allowedOrigins = [
   'https://coliseum-icaroass-projects.vercel.app',
   'http://localhost:3000',
   'http://localhost:5173',
-  'https://coliseum.*.vercel.app'
+  'https://coliseum-*.vercel.app',
+  'https://*.vercel.app'
 ];
 
 app.use(cors({
@@ -50,17 +57,7 @@ app.options('*', cors());
 
 // ✅ MIDDLEWARE PARA PARSING JSON
 app.use(express.json({ 
-  limit: '10mb',
-  verify: (req, res, buf) => {
-    try {
-      if (buf && buf.length > 0) {
-        JSON.parse(buf);
-      }
-    } catch (e) {
-      console.error('❌ JSON inválido recebido');
-      res.status(400).json({ error: 'JSON inválido' });
-    }
-  }
+  limit: '10mb'
 }));
 
 // ✅ MIDDLEWARE DE LOG
@@ -97,12 +94,32 @@ const handleError = (res, error, message = 'Erro interno do servidor') => {
       details: 'Já existe um registro com esses dados únicos'
     });
   }
+
+  if (error.code === 'P1001') {
+    return res.status(503).json({ 
+      error: 'Database não disponível',
+      details: 'Não foi possível conectar ao banco de dados'
+    });
+  }
   
   res.status(500).json({ 
     error: message,
     details: process.env.NODE_ENV === 'development' ? error.message : 'Erro interno'
   });
 };
+
+// ========== CONEXÃO COM BANCO ========== //
+
+async function testDatabaseConnection() {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    console.log('✅ Conexão com banco de dados estabelecida');
+    return true;
+  } catch (error) {
+    console.error('❌ Erro na conexão com banco:', error);
+    return false;
+  }
+}
 
 // ========== ROTAS BÁSICAS ========== //
 
@@ -111,13 +128,15 @@ app.get('/', (req, res) => {
     message: '🚀 API Coliseum Backend - Online',
     status: 'operational',
     timestamp: new Date().toISOString(),
-    version: '1.0.0'
+    version: '1.0.0',
+    database: 'connected'
   });
 });
 
 app.get('/api/health', async (req, res) => {
   try {
-    await prisma.$queryRaw`SELECT 1`;
+    const dbStatus = await testDatabaseConnection();
+    
     const [totalUsuarios, totalVideos, totalCursos] = await Promise.all([
       prisma.usuario.count().catch(() => 0),
       prisma.video.count().catch(() => 0),
@@ -126,14 +145,18 @@ app.get('/api/health', async (req, res) => {
 
     res.json({ 
       status: 'online',
-      database: 'connected',
+      database: dbStatus ? 'connected' : 'disconnected',
       totalUsuarios,
       totalVideos,
       totalCursos,
       timestamp: new Date().toISOString()
     });
   } catch (error) {
-    handleError(res, error, 'Erro no health check');
+    res.status(503).json({
+      status: 'error',
+      database: 'disconnected',
+      error: error.message
+    });
   }
 });
 
@@ -171,23 +194,16 @@ app.post('/api/usuarios', async (req, res) => {
         console.log('📝 Recebendo requisição POST /api/usuarios');
         
         if (!req.body || Object.keys(req.body).length === 0) {
-            console.log('❌ Body vazio ou undefined');
             return res.status(400).json({
-                error: 'Body da requisição vazio ou inválido',
-                details: 'Certifique-se de enviar JSON válido com Content-Type: application/json'
+                error: 'Body da requisição vazio ou inválido'
             });
         }
 
-        const { 
-            nome = '', 
-            ra = '', 
-            serie = '', 
-            senha = '', 
-            curso = '' 
-        } = req.body;
+        const { nome, ra, serie, senha, curso } = req.body;
 
-        console.log('🔍 Dados extraídos:', { nome, ra, serie, curso });
+        console.log('🔍 Dados recebidos:', { nome, ra, serie, curso });
 
+        // ✅ VALIDAÇÃO
         const missingFields = [];
         if (!nome || nome.trim() === '') missingFields.push('nome');
         if (!ra || ra.toString().trim() === '') missingFields.push('ra');
@@ -198,16 +214,11 @@ app.post('/api/usuarios', async (req, res) => {
         if (missingFields.length > 0) {
             return res.status(400).json({
                 error: 'Dados incompletos',
-                missingFields: missingFields,
-                received: { 
-                    nome: nome || 'Não informado',
-                    ra: ra || 'Não informado', 
-                    serie: serie || 'Não informado',
-                    curso: curso || 'Não informado'
-                }
+                missingFields: missingFields
             });
         }
 
+        // ✅ Verificar se RA já existe
         const usuarioExistente = await prisma.usuario.findUnique({
             where: { ra: ra.toString().trim() }
         });
@@ -219,6 +230,7 @@ app.post('/api/usuarios', async (req, res) => {
             });
         }
 
+        // ✅ Criar novo usuário
         const novoUsuario = await prisma.usuario.create({
             data: {
                 nome: nome.trim(),
@@ -235,6 +247,7 @@ app.post('/api/usuarios', async (req, res) => {
 
         console.log('✅ Usuário criado com sucesso - ID:', novoUsuario.id);
 
+        // ✅ Retornar dados sem a senha
         const { senha: _, ...usuarioSemSenha } = novoUsuario;
 
         res.status(201).json({
@@ -255,8 +268,7 @@ app.post('/api/login', async (req, res) => {
         if (!req.body || Object.keys(req.body).length === 0) {
             return res.status(400).json({
                 success: false,
-                error: 'Dados de login necessários',
-                details: 'Envie RA e senha'
+                error: 'Dados de login necessários'
             });
         }
 
@@ -271,6 +283,7 @@ app.post('/api/login', async (req, res) => {
 
         console.log('🔍 Buscando usuário com RA:', ra);
 
+        // ✅ BUSCAR USUÁRIO
         const usuario = await prisma.usuario.findUnique({
             where: { 
                 ra: ra.toString().trim() 
@@ -292,13 +305,13 @@ app.post('/api/login', async (req, res) => {
             console.log('❌ Usuário não encontrado para RA:', ra);
             return res.status(404).json({
                 success: false,
-                error: 'Usuário não encontrado',
-                details: 'Verifique seu RA ou cadastre-se'
+                error: 'Usuário não encontrado'
             });
         }
 
         console.log('✅ Usuário encontrado:', usuario.nome);
 
+        // ✅ VERIFICAR SENHA
         if (usuario.senha !== senha.trim()) {
             console.log('❌ Senha incorreta para usuário:', usuario.nome);
             return res.status(401).json({
@@ -309,6 +322,7 @@ app.post('/api/login', async (req, res) => {
 
         console.log('✅ Login bem-sucedido para:', usuario.nome);
 
+        // ✅ RETORNAR DADOS DO USUÁRIO (sem a senha)
         const { senha: _, ...usuarioSemSenha } = usuario;
 
         res.json({
@@ -322,6 +336,7 @@ app.post('/api/login', async (req, res) => {
     }
 });
 
+// ✅ ROTA RANKING
 app.get('/api/ranking', async (req, res) => {
   try {
     const usuarios = await prisma.usuario.findMany({
@@ -345,6 +360,7 @@ app.get('/api/ranking', async (req, res) => {
   }
 });
 
+// ✅ ROTA PUT USUÁRIOS
 app.put('/api/usuarios/:id', async (req, res) => {
   try {
     const userId = validateId(req.params.id);
@@ -363,6 +379,7 @@ app.put('/api/usuarios/:id', async (req, res) => {
       return res.status(404).json({ error: 'Usuário não encontrado' });
     }
 
+    // ✅ VALIDAÇÃO: Verificar se novo RA já existe (se foi alterado)
     if (ra && ra !== usuarioExistente.ra) {
       const raExistente = await prisma.usuario.findUnique({
         where: { ra: ra.toString().trim() }
@@ -376,14 +393,16 @@ app.put('/api/usuarios/:id', async (req, res) => {
     }
 
     const updateData = { 
-      atualizadoEm: new Date(),
-      nome: nome ? nome.trim() : usuarioExistente.nome,
-      ra: ra ? ra.toString().trim() : usuarioExistente.ra,
-      serie: serie ? serie.trim() : usuarioExistente.serie,
-      curso: curso ? curso.trim() : usuarioExistente.curso,
-      pontuacao: pontuacao !== undefined ? parseInt(pontuacao) : usuarioExistente.pontuacao,
-      desafiosCompletados: desafiosCompletados !== undefined ? parseInt(desafiosCompletados) : usuarioExistente.desafiosCompletados
+      atualizadoEm: new Date()
     };
+
+    // ✅ Atualizar apenas campos fornecidos
+    if (nome !== undefined) updateData.nome = nome.trim();
+    if (ra !== undefined) updateData.ra = ra.toString().trim();
+    if (serie !== undefined) updateData.serie = serie.trim();
+    if (curso !== undefined) updateData.curso = curso.trim();
+    if (pontuacao !== undefined) updateData.pontuacao = parseInt(pontuacao);
+    if (desafiosCompletados !== undefined) updateData.desafiosCompletados = parseInt(desafiosCompletados);
 
     const usuarioAtualizado = await prisma.usuario.update({
       where: { id: userId },
@@ -402,6 +421,7 @@ app.put('/api/usuarios/:id', async (req, res) => {
   }
 });
 
+// ✅ ROTA DELETE USUÁRIOS
 app.delete('/api/usuarios/:id', async (req, res) => {
   try {
     const userId = validateId(req.params.id);
@@ -506,14 +526,14 @@ app.post('/api/cursos', async (req, res) => {
   try {
     const { titulo, descricao, materia, categoria, nivel, duracao, imagem, ativo, modulos } = req.body;
 
+    // ✅ VALIDAÇÃO
     const requiredFields = ['titulo', 'materia', 'categoria', 'nivel', 'duracao'];
     const missingFields = requiredFields.filter(field => !req.body[field]);
 
     if (missingFields.length > 0) {
       return res.status(400).json({ 
         error: 'Dados incompletos',
-        missingFields: missingFields,
-        details: `Campos obrigatórios: ${missingFields.join(', ')}`
+        missingFields: missingFields
       });
     }
 
@@ -531,7 +551,8 @@ app.post('/api/cursos', async (req, res) => {
         }
       });
 
-      if (modulos?.length > 0) {
+      // ✅ CRIAÇÃO DE MÓDULOS E AULAS
+      if (modulos && Array.isArray(modulos)) {
         for (const moduloData of modulos) {
           if (!moduloData.titulo) continue;
           
@@ -545,7 +566,7 @@ app.post('/api/cursos', async (req, res) => {
             }
           });
 
-          if (moduloData.aulas?.length > 0) {
+          if (moduloData.aulas && Array.isArray(moduloData.aulas)) {
             for (const aulaData of moduloData.aulas) {
               if (!aulaData.titulo) continue;
               
@@ -597,22 +618,16 @@ app.put('/api/cursos/:id', async (req, res) => {
     if (!cursoExistente) return res.status(404).json({ error: 'Curso não encontrado' });
 
     const updateData = { atualizadoEm: new Date() };
-    const fields = {
-      titulo: (val) => val.trim(),
-      descricao: (val) => val.trim(),
-      materia: (val) => val.trim(),
-      categoria: (val) => val.trim(),
-      nivel: (val) => val.trim(),
-      duracao: (val) => parseInt(val),
-      imagem: (val) => val?.trim() || null,
-      ativo: (val) => val
-    };
-
-    Object.keys(fields).forEach(field => {
-      if (req.body[field] !== undefined) {
-        updateData[field] = fields[field](req.body[field]);
-      }
-    });
+    
+    // ✅ Atualizar apenas campos fornecidos
+    if (titulo !== undefined) updateData.titulo = titulo.trim();
+    if (descricao !== undefined) updateData.descricao = descricao.trim();
+    if (materia !== undefined) updateData.materia = materia.trim();
+    if (categoria !== undefined) updateData.categoria = categoria.trim();
+    if (nivel !== undefined) updateData.nivel = nivel.trim();
+    if (duracao !== undefined) updateData.duracao = parseInt(duracao);
+    if (imagem !== undefined) updateData.imagem = imagem?.trim() || null;
+    if (ativo !== undefined) updateData.ativo = ativo;
 
     const cursoAtualizado = await prisma.curso.update({
       where: { id: cursoId },
@@ -637,6 +652,7 @@ app.delete('/api/cursos/:id', async (req, res) => {
     const cursoExistente = await prisma.curso.findUnique({ where: { id: cursoId } });
     if (!cursoExistente) return res.status(404).json({ error: 'Curso não encontrado' });
 
+    // ✅ DELETE LÓGICO
     await prisma.curso.update({
       where: { id: cursoId },
       data: { 
@@ -672,14 +688,14 @@ app.post('/api/videos', async (req, res) => {
   try {
     const { titulo, materia, categoria, url, descricao, duracao } = req.body;
 
+    // ✅ VALIDAÇÃO
     const requiredFields = ['titulo', 'materia', 'categoria', 'url', 'duracao'];
     const missingFields = requiredFields.filter(field => !req.body[field]);
 
     if (missingFields.length > 0) {
       return res.status(400).json({ 
         error: 'Dados incompletos',
-        missingFields: missingFields,
-        details: `Campos obrigatórios: ${missingFields.join(', ')}`
+        missingFields: missingFields
       });
     }
 
@@ -714,20 +730,14 @@ app.put('/api/videos/:id', async (req, res) => {
 
     const { titulo, materia, categoria, url, descricao, duracao } = req.body;
     const updateData = {};
-    const fields = {
-      titulo: (val) => val.trim(),
-      materia: (val) => val.trim(),
-      categoria: (val) => val.trim(),
-      url: (val) => val.trim(),
-      descricao: (val) => val.trim(),
-      duracao: (val) => parseInt(val)
-    };
-
-    Object.keys(fields).forEach(field => {
-      if (req.body[field] !== undefined) {
-        updateData[field] = fields[field](req.body[field]);
-      }
-    });
+    
+    // ✅ Atualizar apenas campos fornecidos
+    if (titulo !== undefined) updateData.titulo = titulo.trim();
+    if (materia !== undefined) updateData.materia = materia.trim();
+    if (categoria !== undefined) updateData.categoria = categoria.trim();
+    if (url !== undefined) updateData.url = url.trim();
+    if (descricao !== undefined) updateData.descricao = descricao.trim();
+    if (duracao !== undefined) updateData.duracao = parseInt(duracao);
 
     const videoAtualizado = await prisma.video.update({
       where: { id: videoId },
@@ -792,35 +802,76 @@ app.use('*', (req, res) => {
 
 // ========== INICIALIZAÇÃO DO SERVIDOR ========== //
 
-async function startServer() {
-  try {
-    console.log('🚀 Iniciando servidor Coliseum API...');
-    await prisma.$connect();
-    console.log('✅ Conectado ao banco de dados');
+async function initializeDatabase() {
+    let retries = 5;
     
-    app.listen(PORT, '0.0.0.0', () => {
-      console.log(`\n📍 Servidor rodando na porta ${PORT}`);
-      console.log(`🌐 URL: http://localhost:${PORT}`);
-      console.log(`🌐 Production: https://coliseum-api.onrender.com`);
-      console.log(`\n✨ API Coliseum totalmente operacional!`);
-    });
-  } catch (error) {
-    console.error('❌ Erro ao iniciar servidor:', error);
-    process.exit(1);
-  }
+    while (retries > 0) {
+        try {
+            console.log(`🔄 Tentando conectar ao banco de dados... (${retries} tentativas restantes)`);
+            await prisma.$queryRaw`SELECT 1`;
+            console.log('✅ Conectado ao banco de dados com sucesso!');
+            return true;
+            
+        } catch (error) {
+            console.error(`❌ Falha na conexão com o banco:`, error.message);
+            retries -= 1;
+            
+            if (retries === 0) {
+                console.error('❌ Todas as tentativas de conexão falharam');
+                return false;
+            }
+            
+            console.log('⏳ Aguardando 5 segundos antes da próxima tentativa...');
+            await new Promise(resolve => setTimeout(resolve, 5000));
+        }
+    }
 }
 
+async function startServer() {
+    try {
+        console.log('🚀 Iniciando servidor Coliseum API...');
+        
+        // Tentar conectar ao banco primeiro
+        const dbConnected = await initializeDatabase();
+        
+        if (!dbConnected) {
+            console.error('❌ Não foi possível conectar ao banco de dados. Encerrando...');
+            process.exit(1);
+        }
+        
+        // Iniciar servidor
+        const server = app.listen(PORT, '0.0.0.0', () => {
+            console.log(`\n📍 Servidor rodando na porta ${PORT}`);
+            console.log(`🌐 URL: http://localhost:${PORT}`);
+            console.log(`🌐 Production: https://coliseum-api.onrender.com`);
+            console.log(`\n✨ API Coliseum totalmente operacional!`);
+        });
+        
+        // ✅ Configurar keep-alive para evitar timeout
+        server.keepAliveTimeout = 120000;
+        server.headersTimeout = 120000;
+        
+        return server;
+        
+    } catch (error) {
+        console.error('❌ Erro ao iniciar servidor:', error);
+        process.exit(1);
+    }
+}
+
+// Graceful shutdown
 process.on('SIGINT', async () => {
-  console.log('\n🛑 Desligando servidor graciosamente...');
-  await prisma.$disconnect();
-  console.log('✅ Conexão com banco de dados fechada');
-  process.exit(0);
+    console.log('\n🛑 Desligando servidor graciosamente...');
+    await prisma.$disconnect();
+    console.log('✅ Conexão com banco de dados fechada');
+    process.exit(0);
 });
 
 process.on('SIGTERM', async () => {
-  console.log('\n🛑 Servidor recebeu sinal de término...');
-  await prisma.$disconnect();
-  process.exit(0);
+    console.log('\n🛑 Servidor recebeu sinal de término...');
+    await prisma.$disconnect();
+    process.exit(0);
 });
 
+// Iniciar servidor
 startServer();
