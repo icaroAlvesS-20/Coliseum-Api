@@ -12,23 +12,27 @@ const prisma = new PrismaClient({
   errorFormat: 'minimal',
 });
 
-// ✅ CONFIGURAÇÃO CORS SIMPLIFICADA E EFICIENTE
+// ✅ CONFIGURAÇÃO CORS ATUALIZADA E COMPLETA
 const allowedOrigins = [
+  'https://coliseum-of2dynr3p-icaroass-projects.vercel.app',
   'https://coliseum-adm.vercel.app',
   'https://coliseum-6hm18oy24-icaroass-projects.vercel.app',
   'https://coliseum-frontend.vercel.app',
   'https://coliseum-icaroass-projects.vercel.app',
   'http://localhost:3000',
-  'http://localhost:5173'
+  'http://localhost:5173',
+  'https://coliseum.*.vercel.app'
 ];
 
-// ✅ APLICAR CORS UMA ÚNICA VEZ
 app.use(cors({
   origin: function (origin, callback) {
     // Permitir requests sem origin (mobile apps, Postman, etc)
     if (!origin) return callback(null, true);
     
-    if (allowedOrigins.indexOf(origin) !== -1) {
+    // Verificar se a origin está na lista ou é um subdomínio Vercel
+    if (allowedOrigins.some(allowed => origin === allowed) || 
+        origin.endsWith('.vercel.app') ||
+        origin.includes('vercel.app')) {
       callback(null, true);
     } else {
       console.log('🚫 CORS bloqueado para origin:', origin);
@@ -37,11 +41,14 @@ app.use(cors({
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'x-requested-with'],
   optionsSuccessStatus: 200
 }));
 
-// ✅ MIDDLEWARE PARA PARSING JSON (mantido igual)
+// ✅ MIDDLEWARE PARA OPTIONS (pré-flight)
+app.options('*', cors());
+
+// ✅ MIDDLEWARE PARA PARSING JSON
 app.use(express.json({ 
   limit: '10mb',
   verify: (req, res, buf) => {
@@ -56,7 +63,7 @@ app.use(express.json({
   }
 }));
 
-// ✅ MIDDLEWARE DE LOG (mantido igual)
+// ✅ MIDDLEWARE DE LOG
 app.use((req, res, next) => {
   console.log(`\n=== NOVA REQUISIÇÃO ===`);
   console.log(`[${new Date().toLocaleTimeString()}] ${req.method} ${req.path}`);
@@ -77,7 +84,6 @@ const validateId = (id) => {
 const handleError = (res, error, message = 'Erro interno do servidor') => {
   console.error(`❌ ${message}:`, error);
   
-  // ✅ MELHOR TRATAMENTO DE ERROS DO PRISMA
   if (error.code === 'P2025') {
     return res.status(404).json({ 
       error: 'Registro não encontrado',
@@ -133,7 +139,6 @@ app.get('/api/health', async (req, res) => {
 
 // ========== SISTEMA DE USUÁRIOS ========== //
 
-// ✅ ROTA GET /api/usuarios - CORRIGIDA
 app.get('/api/usuarios', async (req, res) => {
   try {
     console.log('👥 Buscando todos os usuários...');
@@ -161,12 +166,10 @@ app.get('/api/usuarios', async (req, res) => {
   }
 });
 
-// ✅ ROTA POST /api/usuarios - CORRIGIDA
 app.post('/api/usuarios', async (req, res) => {
     try {
         console.log('📝 Recebendo requisição POST /api/usuarios');
         
-        // ✅ VERIFICAÇÃO ROBUSTA do body
         if (!req.body || Object.keys(req.body).length === 0) {
             console.log('❌ Body vazio ou undefined');
             return res.status(400).json({
@@ -175,7 +178,6 @@ app.post('/api/usuarios', async (req, res) => {
             });
         }
 
-        // ✅ DESTRUCTURING SEGURO com valores padrão
         const { 
             nome = '', 
             ra = '', 
@@ -186,7 +188,6 @@ app.post('/api/usuarios', async (req, res) => {
 
         console.log('🔍 Dados extraídos:', { nome, ra, serie, curso });
 
-        // ✅ VALIDAÇÃO COMPLETA
         const missingFields = [];
         if (!nome || nome.trim() === '') missingFields.push('nome');
         if (!ra || ra.toString().trim() === '') missingFields.push('ra');
@@ -207,7 +208,6 @@ app.post('/api/usuarios', async (req, res) => {
             });
         }
 
-        // ✅ Verificar se RA já existe
         const usuarioExistente = await prisma.usuario.findUnique({
             where: { ra: ra.toString().trim() }
         });
@@ -219,7 +219,6 @@ app.post('/api/usuarios', async (req, res) => {
             });
         }
 
-        // ✅ Criar novo usuário
         const novoUsuario = await prisma.usuario.create({
             data: {
                 nome: nome.trim(),
@@ -236,7 +235,6 @@ app.post('/api/usuarios', async (req, res) => {
 
         console.log('✅ Usuário criado com sucesso - ID:', novoUsuario.id);
 
-        // ✅ Retornar dados sem a senha
         const { senha: _, ...usuarioSemSenha } = novoUsuario;
 
         res.status(201).json({
@@ -250,12 +248,10 @@ app.post('/api/usuarios', async (req, res) => {
     }
 });
 
-// ✅ ROTA ESPECÍFICA PARA LOGIN - CORRIGIDA
 app.post('/api/login', async (req, res) => {
     try {
         console.log('🔐 Recebendo requisição de login');
 
-        // ✅ VERIFICAÇÃO ROBUSTA
         if (!req.body || Object.keys(req.body).length === 0) {
             return res.status(400).json({
                 success: false,
@@ -266,7 +262,6 @@ app.post('/api/login', async (req, res) => {
 
         const { ra, senha } = req.body;
 
-        // ✅ VALIDAÇÃO
         if (!ra || !senha) {
             return res.status(400).json({
                 success: false,
@@ -276,7 +271,6 @@ app.post('/api/login', async (req, res) => {
 
         console.log('🔍 Buscando usuário com RA:', ra);
 
-        // ✅ BUSCAR USUÁRIO
         const usuario = await prisma.usuario.findUnique({
             where: { 
                 ra: ra.toString().trim() 
@@ -305,7 +299,6 @@ app.post('/api/login', async (req, res) => {
 
         console.log('✅ Usuário encontrado:', usuario.nome);
 
-        // ✅ VERIFICAR SENHA
         if (usuario.senha !== senha.trim()) {
             console.log('❌ Senha incorreta para usuário:', usuario.nome);
             return res.status(401).json({
@@ -316,7 +309,6 @@ app.post('/api/login', async (req, res) => {
 
         console.log('✅ Login bem-sucedido para:', usuario.nome);
 
-        // ✅ RETORNAR DADOS DO USUÁRIO (sem a senha)
         const { senha: _, ...usuarioSemSenha } = usuario;
 
         res.json({
@@ -330,7 +322,6 @@ app.post('/api/login', async (req, res) => {
     }
 });
 
-// ✅ ROTA RANKING - CORRIGIDA
 app.get('/api/ranking', async (req, res) => {
   try {
     const usuarios = await prisma.usuario.findMany({
@@ -354,7 +345,6 @@ app.get('/api/ranking', async (req, res) => {
   }
 });
 
-// ✅ ROTA PUT USUÁRIOS - CORRIGIDA
 app.put('/api/usuarios/:id', async (req, res) => {
   try {
     const userId = validateId(req.params.id);
@@ -373,7 +363,6 @@ app.put('/api/usuarios/:id', async (req, res) => {
       return res.status(404).json({ error: 'Usuário não encontrado' });
     }
 
-    // ✅ VALIDAÇÃO: Verificar se novo RA já existe (se foi alterado)
     if (ra && ra !== usuarioExistente.ra) {
       const raExistente = await prisma.usuario.findUnique({
         where: { ra: ra.toString().trim() }
@@ -413,7 +402,6 @@ app.put('/api/usuarios/:id', async (req, res) => {
   }
 });
 
-// ✅ ROTA DELETE USUÁRIOS - CORRIGIDA
 app.delete('/api/usuarios/:id', async (req, res) => {
   try {
     const userId = validateId(req.params.id);
@@ -518,7 +506,6 @@ app.post('/api/cursos', async (req, res) => {
   try {
     const { titulo, descricao, materia, categoria, nivel, duracao, imagem, ativo, modulos } = req.body;
 
-    // ✅ VALIDAÇÃO MELHORADA
     const requiredFields = ['titulo', 'materia', 'categoria', 'nivel', 'duracao'];
     const missingFields = requiredFields.filter(field => !req.body[field]);
 
@@ -544,10 +531,9 @@ app.post('/api/cursos', async (req, res) => {
         }
       });
 
-      // ✅ CRIAÇÃO DE MÓDULOS E AULAS COM TRATAMENTO DE ERRO
       if (modulos?.length > 0) {
         for (const moduloData of modulos) {
-          if (!moduloData.titulo) continue; // Pular módulos sem título
+          if (!moduloData.titulo) continue;
           
           const modulo = await tx.modulo.create({
             data: {
@@ -561,7 +547,7 @@ app.post('/api/cursos', async (req, res) => {
 
           if (moduloData.aulas?.length > 0) {
             for (const aulaData of moduloData.aulas) {
-              if (!aulaData.titulo) continue; // Pular aulas sem título
+              if (!aulaData.titulo) continue;
               
               await tx.aula.create({
                 data: {
@@ -643,9 +629,6 @@ app.put('/api/cursos/:id', async (req, res) => {
   }
 });
 
-// ✅ ROTA DELETE CURSOS - CORRIGIDA (ESCOLHA UMA DAS OPÇÕES):
-
-// OPÇÃO 1: DELETE LÓGICO (RECOMENDADO)
 app.delete('/api/cursos/:id', async (req, res) => {
   try {
     const cursoId = validateId(req.params.id);
@@ -654,7 +637,6 @@ app.delete('/api/cursos/:id', async (req, res) => {
     const cursoExistente = await prisma.curso.findUnique({ where: { id: cursoId } });
     if (!cursoExistente) return res.status(404).json({ error: 'Curso não encontrado' });
 
-    // ✅ DELETE LÓGICO (mantém no banco mas marca como inativo)
     await prisma.curso.update({
       where: { id: cursoId },
       data: { 
@@ -690,7 +672,6 @@ app.post('/api/videos', async (req, res) => {
   try {
     const { titulo, materia, categoria, url, descricao, duracao } = req.body;
 
-    // ✅ VALIDAÇÃO MELHORADA
     const requiredFields = ['titulo', 'materia', 'categoria', 'url', 'duracao'];
     const missingFields = requiredFields.filter(field => !req.body[field]);
 
@@ -829,7 +810,6 @@ async function startServer() {
   }
 }
 
-// ✅ GRACEFUL SHUTDOWN
 process.on('SIGINT', async () => {
   console.log('\n🛑 Desligando servidor graciosamente...');
   await prisma.$disconnect();
