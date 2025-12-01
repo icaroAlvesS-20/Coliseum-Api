@@ -123,3 +123,4 @@ model ProgressoAula {
   @@unique([usuarioId, aulaId])
   @@map("progresso_aulas")
 }
+
