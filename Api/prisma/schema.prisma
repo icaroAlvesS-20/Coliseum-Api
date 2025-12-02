@@ -1,5 +1,4 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
 
 generator client {
   provider = "prisma-client-js"
@@ -41,7 +40,79 @@ model Video {
 
   @@map("videos")
 }
+// ========== TABELA DE DESAFIOS ========== //
 
+model Desafio {
+  id                Int         @id @default(autoincrement())
+  titulo            String
+  descricao         String?
+  materia           String
+  nivel             String      // fácil, médio, difícil, avançado
+  pontuacao         Int         @default(20)
+  duracao           Int         @default(15) // minutos
+  status            String      @default("ativo") // ativo, inativo, rascunho
+  maxTentativas     Int         @default(1) // 0 = ilimitado
+  dataInicio        DateTime?
+  dataFim           DateTime?
+  
+  // Relacionamentos
+  perguntas         PerguntaDesafio[]
+  historico         HistoricoDesafio[]
+  
+  // Timestamps
+  criadoEm          DateTime    @default(now())
+  atualizadoEm      DateTime    @updatedAt
+  
+  @@index([status])
+  @@index([materia])
+  @@index([dataFim])
+}
+
+model PerguntaDesafio {
+  id                Int         @id @default(autoincrement())
+  pergunta          String
+  alternativaA      String
+  alternativaB      String
+  alternativaC      String
+  alternativaD      String
+  correta           Int         // 0=A, 1=B, 2=C, 3=D
+  explicacao        String?
+  ordem             Int         @default(1)
+  ativo             Boolean     @default(true)
+  
+  // Relacionamentos
+  desafioId         Int
+  desafio           Desafio     @relation(fields: [desafioId], references: [id], onDelete: Cascade)
+  
+  // Timestamps
+  criadoEm          DateTime    @default(now())
+  atualizadoEm      DateTime    @updatedAt
+  
+  @@index([desafioId])
+  @@unique([desafioId, ordem])
+}
+
+model HistoricoDesafio {
+  id                Int         @id @default(autoincrement())
+  pontuacaoGanha    Int
+  acertos           Int
+  totalPerguntas    Int
+  porcentagemAcerto Float
+  dataConclusao     DateTime    @default(now())
+  
+  // Relacionamentos
+  usuarioId         Int
+  desafioId         Int
+  usuario           Usuario     @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  desafio           Desafio     @relation(fields: [desafioId], references: [id], onDelete: Cascade)
+  
+  // Timestamps
+  criadoEm          DateTime    @default(now())
+  
+  @@index([usuarioId])
+  @@index([desafioId])
+  @@index([dataConclusao])
+}
 model Curso {
   id          Int               @id @default(autoincrement())
   titulo      String
@@ -125,4 +196,77 @@ model ProgressoAula {
 
   @@unique([usuarioId, aulaId])
   @@map("progresso_aulas")
+}
+// ========== TABELA DE DESAFIOS ========== //
+
+model Desafio {
+  id                Int         @id @default(autoincrement())
+  titulo            String
+  descricao         String?
+  materia           String
+  nivel             String      // fácil, médio, difícil, avançado
+  pontuacao         Int         @default(20)
+  duracao           Int         @default(15) // minutos
+  status            String      @default("ativo") // ativo, inativo, rascunho
+  maxTentativas     Int         @default(1) // 0 = ilimitado
+  dataInicio        DateTime?
+  dataFim           DateTime?
+  
+  // Relacionamentos
+  perguntas         PerguntaDesafio[]
+  historico         HistoricoDesafio[]
+  
+  // Timestamps
+  criadoEm          DateTime    @default(now())
+  atualizadoEm      DateTime    @updatedAt
+  
+  @@index([status])
+  @@index([materia])
+  @@index([dataFim])
+}
+
+model PerguntaDesafio {
+  id                Int         @id @default(autoincrement())
+  pergunta          String
+  alternativaA      String
+  alternativaB      String
+  alternativaC      String
+  alternativaD      String
+  correta           Int         // 0=A, 1=B, 2=C, 3=D
+  explicacao        String?
+  ordem             Int         @default(1)
+  ativo             Boolean     @default(true)
+  
+  // Relacionamentos
+  desafioId         Int
+  desafio           Desafio     @relation(fields: [desafioId], references: [id], onDelete: Cascade)
+  
+  // Timestamps
+  criadoEm          DateTime    @default(now())
+  atualizadoEm      DateTime    @updatedAt
+  
+  @@index([desafioId])
+  @@unique([desafioId, ordem])
+}
+
+model HistoricoDesafio {
+  id                Int         @id @default(autoincrement())
+  pontuacaoGanha    Int
+  acertos           Int
+  totalPerguntas    Int
+  porcentagemAcerto Float
+  dataConclusao     DateTime    @default(now())
+  
+  // Relacionamentos
+  usuarioId         Int
+  desafioId         Int
+  usuario           Usuario     @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  desafio           Desafio     @relation(fields: [desafioId], references: [id], onDelete: Cascade)
+  
+  // Timestamps
+  criadoEm          DateTime    @default(now())
+  
+  @@index([usuarioId])
+  @@index([desafioId])
+  @@index([dataConclusao])
 }
