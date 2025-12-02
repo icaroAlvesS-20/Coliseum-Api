@@ -1,4 +1,6 @@
-// schema.prisma
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -15,10 +17,11 @@ model Usuario {
   senha               String
   serie               String
   curso               String              @default("matematica")
+  status              String              @default("ativo") // ✅ NOVO: ativo/inativo
   pontuacao           Int                 @default(0)
   desafiosCompletados Int                 @default(0)
   criadoEm            DateTime            @default(now())
-  atualizadoEm        DateTime            @default(now())
+  atualizadoEm        DateTime            @updatedAt
 
   progressosCursos    ProgressoCurso[]
   progressosAulas     ProgressoAula[]
@@ -50,7 +53,7 @@ model Curso {
   imagem      String?
   ativo       Boolean           @default(true)
   criadoEm    DateTime          @default(now())
-  atualizadoEm DateTime         @default(now())
+  atualizadoEm DateTime         @updatedAt
 
   modulos     Modulo[]
   progressos  ProgressoCurso[]
@@ -99,7 +102,7 @@ model ProgressoCurso {
   usuarioId   Int
   cursoId     Int
   criadoEm    DateTime  @default(now())
-  atualizadoEm DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
 
   usuario     Usuario   @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
   curso       Curso     @relation(fields: [cursoId], references: [id], onDelete: Cascade)
@@ -123,4 +126,3 @@ model ProgressoAula {
   @@unique([usuarioId, aulaId])
   @@map("progresso_aulas")
 }
-
