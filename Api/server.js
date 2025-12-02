@@ -160,8 +160,9 @@ app.get('/api/health', async (req, res) => {
   }
 });
 
-// ========== SISTEMA DE USUÁRIOS ========== //
+// ========== SISTEMA DE USUÁRIOS (ATUALIZADO) ========== //
 
+// ✅ GET TODOS OS USUÁRIOS
 app.get('/api/usuarios', async (req, res) => {
   try {
     console.log('👥 Buscando todos os usuários...');
@@ -175,6 +176,7 @@ app.get('/api/usuarios', async (req, res) => {
         curso: true,
         pontuacao: true,
         desafiosCompletados: true,
+        status: true, // ✅ NOVO CAMPO
         criadoEm: true,
         atualizadoEm: true
       },
@@ -189,6 +191,7 @@ app.get('/api/usuarios', async (req, res) => {
   }
 });
 
+// ✅ POST CRIAR USUÁRIO
 app.post('/api/usuarios', async (req, res) => {
     try {
         console.log('📝 Recebendo requisição POST /api/usuarios');
@@ -199,9 +202,9 @@ app.post('/api/usuarios', async (req, res) => {
             });
         }
 
-        const { nome, ra, serie, senha, curso } = req.body;
+        const { nome, ra, serie, senha, curso, status = 'ativo' } = req.body;
 
-        console.log('🔍 Dados recebidos:', { nome, ra, serie, curso });
+        console.log('🔍 Dados recebidos:', { nome, ra, serie, curso, status });
 
         // ✅ VALIDAÇÃO
         const missingFields = [];
@@ -215,6 +218,14 @@ app.post('/api/usuarios', async (req, res) => {
             return res.status(400).json({
                 error: 'Dados incompletos',
                 missingFields: missingFields
+            });
+        }
+
+        // ✅ VALIDAÇÃO DO RA (4 dígitos)
+        if (!/^\d{4}$/.test(ra.toString().trim())) {
+            return res.status(400).json({
+                error: 'RA inválido',
+                details: 'O RA deve conter exatamente 4 dígitos numéricos'
             });
         }
 
@@ -238,6 +249,7 @@ app.post('/api/usuarios', async (req, res) => {
                 serie: serie.trim(),
                 senha: senha.trim(),
                 curso: curso.trim(),
+                status: status,
                 pontuacao: 0,
                 desafiosCompletados: 0,
                 criadoEm: new Date(),
@@ -261,6 +273,7 @@ app.post('/api/usuarios', async (req, res) => {
     }
 });
 
+// ✅ LOGIN
 app.post('/api/login', async (req, res) => {
     try {
         console.log('🔐 Recebendo requisição de login');
@@ -295,6 +308,7 @@ app.post('/api/login', async (req, res) => {
                 serie: true,
                 curso: true,
                 senha: true,
+                status: true, // ✅ VERIFICAR STATUS
                 pontuacao: true,
                 desafiosCompletados: true,
                 criadoEm: true
@@ -306,6 +320,15 @@ app.post('/api/login', async (req, res) => {
             return res.status(404).json({
                 success: false,
                 error: 'Usuário não encontrado'
+            });
+        }
+
+        // ✅ VERIFICAR SE USUÁRIO ESTÁ ATIVO
+        if (usuario.status !== 'ativo') {
+            console.log('❌ Usuário inativo tentou fazer login:', usuario.nome);
+            return res.status(403).json({
+                success: false,
+                error: 'Usuário inativo. Contate o administrador.'
             });
         }
 
@@ -336,10 +359,13 @@ app.post('/api/login', async (req, res) => {
     }
 });
 
-// ✅ ROTA RANKING
+// ✅ RANKING
 app.get('/api/ranking', async (req, res) => {
   try {
     const usuarios = await prisma.usuario.findMany({
+      where: {
+        status: 'ativo' // ✅ Só mostrar usuários ativos no ranking
+      },
       select: {
         id: true,
         nome: true,
@@ -360,7 +386,7 @@ app.get('/api/ranking', async (req, res) => {
   }
 });
 
-// ✅ ROTA PUT USUÁRIOS
+// ✅ PUT ATUALIZAR USUÁRIO
 app.put('/api/usuarios/:id', async (req, res) => {
   try {
     const userId = validateId(req.params.id);
@@ -368,7 +394,7 @@ app.put('/api/usuarios/:id', async (req, res) => {
       return res.status(400).json({ error: 'ID do usuário inválido' });
     }
 
-    const { nome, ra, serie, curso, pontuacao, desafiosCompletados } = req.body;
+    const { nome, ra, serie, curso, pontuacao, desafiosCompletados, status } = req.body;
     console.log(`✏️ Atualizando usuário ID: ${userId}`, req.body);
 
     const usuarioExistente = await prisma.usuario.findUnique({
@@ -381,6 +407,14 @@ app.put('/api/usuarios/:id', async (req, res) => {
 
     // ✅ VALIDAÇÃO: Verificar se novo RA já existe (se foi alterado)
     if (ra && ra !== usuarioExistente.ra) {
+      // ✅ VALIDAÇÃO DO RA (4 dígitos)
+      if (!/^\d{4}$/.test(ra.toString().trim())) {
+          return res.status(400).json({
+              error: 'RA inválido',
+              details: 'O RA deve conter exatamente 4 dígitos numéricos'
+          });
+      }
+      
       const raExistente = await prisma.usuario.findUnique({
         where: { ra: ra.toString().trim() }
       });
@@ -403,6 +437,7 @@ app.put('/api/usuarios/:id', async (req, res) => {
     if (curso !== undefined) updateData.curso = curso.trim();
     if (pontuacao !== undefined) updateData.pontuacao = parseInt(pontuacao);
     if (desafiosCompletados !== undefined) updateData.desafiosCompletados = parseInt(desafiosCompletados);
+    if (status !== undefined) updateData.status = status;
 
     const usuarioAtualizado = await prisma.usuario.update({
       where: { id: userId },
@@ -421,7 +456,7 @@ app.put('/api/usuarios/:id', async (req, res) => {
   }
 });
 
-// ✅ ROTA DELETE USUÁRIOS
+// ✅ DELETE USUÁRIO
 app.delete('/api/usuarios/:id', async (req, res) => {
   try {
     const userId = validateId(req.params.id);
@@ -461,6 +496,7 @@ app.delete('/api/usuarios/:id', async (req, res) => {
 
 // ========== SISTEMA DE CURSOS ========== //
 
+// ✅ GET TODOS OS CURSOS
 app.get('/api/cursos', async (req, res) => {
   try {
     console.log('📚 Buscando todos os cursos...');
@@ -488,6 +524,7 @@ app.get('/api/cursos', async (req, res) => {
   }
 });
 
+// ✅ GET CURSO POR ID
 app.get('/api/cursos/:id', async (req, res) => {
   try {
     const cursoId = validateId(req.params.id);
@@ -522,6 +559,7 @@ app.get('/api/cursos/:id', async (req, res) => {
   }
 });
 
+// ✅ POST CRIAR CURSO
 app.post('/api/cursos', async (req, res) => {
   try {
     const { titulo, descricao, materia, categoria, nivel, duracao, imagem, ativo, modulos } = req.body;
@@ -607,6 +645,7 @@ app.post('/api/cursos', async (req, res) => {
   }
 });
 
+// ✅ PUT ATUALIZAR CURSO
 app.put('/api/cursos/:id', async (req, res) => {
   try {
     const cursoId = validateId(req.params.id);
@@ -644,6 +683,7 @@ app.put('/api/cursos/:id', async (req, res) => {
   }
 });
 
+// ✅ DELETE CURSO
 app.delete('/api/cursos/:id', async (req, res) => {
   try {
     const cursoId = validateId(req.params.id);
@@ -673,6 +713,7 @@ app.delete('/api/cursos/:id', async (req, res) => {
 
 // ========== SISTEMA DE VÍDEOS ========== //
 
+// ✅ GET TODOS OS VÍDEOS
 app.get('/api/videos', async (req, res) => {
   try {
     const videos = await prisma.video.findMany({ 
@@ -684,6 +725,7 @@ app.get('/api/videos', async (req, res) => {
   }
 });
 
+// ✅ POST CRIAR VÍDEO
 app.post('/api/videos', async (req, res) => {
   try {
     const { titulo, materia, categoria, url, descricao, duracao } = req.body;
@@ -720,6 +762,7 @@ app.post('/api/videos', async (req, res) => {
   }
 });
 
+// ✅ PUT ATUALIZAR VÍDEO
 app.put('/api/videos/:id', async (req, res) => {
   try {
     const videoId = validateId(req.params.id);
@@ -754,6 +797,7 @@ app.put('/api/videos/:id', async (req, res) => {
   }
 });
 
+// ✅ DELETE VÍDEO
 app.delete('/api/videos/:id', async (req, res) => {
   try {
     const videoId = validateId(req.params.id);
