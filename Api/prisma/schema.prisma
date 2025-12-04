@@ -14,7 +14,7 @@ model Usuario {
   senha               String
   serie               String
   curso               String              @default("matematica")
-  status              String              @default("ativo") // ✅ NOVO: ativo/inativo
+  status              String              @default("ativo")
   pontuacao           Int                 @default(0)
   desafiosCompletados Int                 @default(0)
   criadoEm            DateTime            @default(now())
@@ -22,6 +22,7 @@ model Usuario {
 
   progressosCursos    ProgressoCurso[]
   progressosAulas     ProgressoAula[]
+  historicoDesafios   HistoricoDesafio[]  // ✅ ADICIONE ESTA LINHA
 
   @@map("Usuario")
 }
@@ -38,26 +39,23 @@ model Video {
 
   @@map("videos")
 }
-// ========== TABELA DE DESAFIOS ========== //
 
 model Desafio {
   id                Int         @id @default(autoincrement())
   titulo            String
   descricao         String?
   materia           String
-  nivel             String      // fácil, médio, difícil, avançado
+  nivel             String
   pontuacao         Int         @default(20)
-  duracao           Int         @default(15) // minutos
-  status            String      @default("ativo") // ativo, inativo, rascunho
-  maxTentativas     Int         @default(1) // 0 = ilimitado
+  duracao           Int         @default(15)
+  status            String      @default("ativo")
+  maxTentativas     Int         @default(1)
   dataInicio        DateTime?
   dataFim           DateTime?
   
-  // Relacionamentos
   perguntas         PerguntaDesafio[]
   historico         HistoricoDesafio[]
   
-  // Timestamps
   criadoEm          DateTime    @default(now())
   atualizadoEm      DateTime    @updatedAt
   
@@ -73,16 +71,14 @@ model PerguntaDesafio {
   alternativaB      String
   alternativaC      String
   alternativaD      String
-  correta           Int         // 0=A, 1=B, 2=C, 3=D
+  correta           Int
   explicacao        String?
   ordem             Int         @default(1)
   ativo             Boolean     @default(true)
   
-  // Relacionamentos
   desafioId         Int
   desafio           Desafio     @relation(fields: [desafioId], references: [id], onDelete: Cascade)
   
-  // Timestamps
   criadoEm          DateTime    @default(now())
   atualizadoEm      DateTime    @updatedAt
   
@@ -98,13 +94,11 @@ model HistoricoDesafio {
   porcentagemAcerto Float
   dataConclusao     DateTime    @default(now())
   
-  // Relacionamentos
   usuarioId         Int
   desafioId         Int
   usuario           Usuario     @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
   desafio           Desafio     @relation(fields: [desafioId], references: [id], onDelete: Cascade)
   
-  // Timestamps
   criadoEm          DateTime    @default(now())
   
   @@index([usuarioId])
