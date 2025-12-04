@@ -137,10 +137,11 @@ app.get('/api/health', async (req, res) => {
   try {
     const dbStatus = await testDatabaseConnection();
     
-    const [totalUsuarios, totalVideos, totalCursos] = await Promise.all([
+    const [totalUsuarios, totalVideos, totalCursos, totalDesafios] = await Promise.all([
       prisma.usuario.count().catch(() => 0),
       prisma.video.count().catch(() => 0),
-      prisma.curso.count().catch(() => 0)
+      prisma.curso.count().catch(() => 0),
+      prisma.desafio.count().catch(() => 0)
     ]);
 
     res.json({ 
@@ -149,6 +150,7 @@ app.get('/api/health', async (req, res) => {
       totalUsuarios,
       totalVideos,
       totalCursos,
+      totalDesafios,
       timestamp: new Date().toISOString()
     });
   } catch (error) {
@@ -160,7 +162,7 @@ app.get('/api/health', async (req, res) => {
   }
 });
 
-// ========== SISTEMA DE USUÁRIOS (ATUALIZADO) ========== //
+// ========== SISTEMA DE USUÁRIOS ========== //
 
 // ✅ GET TODOS OS USUÁRIOS
 app.get('/api/usuarios', async (req, res) => {
@@ -176,7 +178,7 @@ app.get('/api/usuarios', async (req, res) => {
         curso: true,
         pontuacao: true,
         desafiosCompletados: true,
-        status: true, // ✅ NOVO CAMPO
+        status: true,
         criadoEm: true,
         atualizadoEm: true
       },
@@ -308,7 +310,7 @@ app.post('/api/login', async (req, res) => {
                 serie: true,
                 curso: true,
                 senha: true,
-                status: true, // ✅ VERIFICAR STATUS
+                status: true,
                 pontuacao: true,
                 desafiosCompletados: true,
                 criadoEm: true
@@ -364,7 +366,7 @@ app.get('/api/ranking', async (req, res) => {
   try {
     const usuarios = await prisma.usuario.findMany({
       where: {
-        status: 'ativo' // ✅ Só mostrar usuários ativos no ranking
+        status: 'ativo'
       },
       select: {
         id: true,
@@ -384,123 +386,6 @@ app.get('/api/ranking', async (req, res) => {
   } catch (error) {
     handleError(res, error, 'Erro ao carregar ranking');
   }
-});
-
-// ========== SISTEMA DE DESAFIOS ========== //
-
-// ✅ ROTA PARA REGISTRAR DESAFIO COMPLETO
-app.post('/api/desafio-completo', async (req, res) => {
-    try {
-        console.log('🎯 Recebendo registro de desafio completo');
-        
-        const { usuarioId, pontuacaoGanha, acertos, totalPerguntas, porcentagemAcerto, sequencia, materia } = req.body;
-
-        // ✅ VALIDAÇÃO
-        if (!usuarioId || !pontuacaoGanha || !acertos || !totalPerguntas || !materia) {
-            return res.status(400).json({
-                error: 'Dados incompletos',
-                required: ['usuarioId', 'pontuacaoGanha', 'acertos', 'totalPerguntas', 'materia']
-            });
-        }
-
-        console.log('📊 Dados do desafio:', {
-            usuarioId,
-            pontuacaoGanha,
-            acertos,
-            totalPerguntas,
-            porcentagemAcerto,
-            sequencia,
-            materia
-        });
-
-        // ✅ BUSCAR USUÁRIO
-        const usuario = await prisma.usuario.findUnique({
-            where: { id: parseInt(usuarioId) }
-        });
-
-        if (!usuario) {
-            return res.status(404).json({ error: 'Usuário não encontrado' });
-        }
-
-        // ✅ VERIFICAR SE USUÁRIO ESTÁ ATIVO
-        if (usuario.status !== 'ativo') {
-            return res.status(403).json({
-                error: 'Usuário inativo',
-                message: 'Usuário inativo não pode completar desafios'
-            });
-        }
-
-        // ✅ ATUALIZAR DADOS DO USUÁRIO
-        const novaPontuacao = usuario.pontuacao + parseInt(pontuacaoGanha);
-        const novosDesafios = usuario.desafiosCompletados + 1;
-
-        const usuarioAtualizado = await prisma.usuario.update({
-            where: { id: parseInt(usuarioId) },
-            data: {
-                pontuacao: novaPontuacao,
-                desafiosCompletados: novosDesafios,
-                atualizadoEm: new Date()
-            }
-        });
-
-        // ✅ REGISTRAR HISTÓRICO DO DESAFIO (opcional - você pode criar uma tabela para isso)
-        try {
-            // Aqui você pode salvar o histórico do desafio em uma tabela separada
-            console.log('📝 Desafio registrado para usuário:', usuario.nome);
-        } catch (historyError) {
-            console.warn('⚠️ Não foi possível salvar histórico do desafio:', historyError.message);
-            // Não interrompe o fluxo principal
-        }
-
-        console.log(`✅ Desafio registrado: ${usuario.nome} ganhou +${pontuacaoGanha} pontos`);
-
-        // ✅ RETORNAR DADOS ATUALIZADOS
-        res.json({
-            success: true,
-            message: 'Desafio registrado com sucesso!',
-            usuario: {
-                id: usuarioAtualizado.id,
-                nome: usuarioAtualizado.nome,
-                ra: usuarioAtualizado.ra,
-                serie: usuarioAtualizado.serie,
-                curso: usuarioAtualizado.curso,
-                pontuacao: usuarioAtualizado.pontuacao,
-                desafiosCompletados: usuarioAtualizado.desafiosCompletados,
-                status: usuarioAtualizado.status
-            },
-            desafio: {
-                pontosGanhos: pontuacaoGanha,
-                acertos: acertos,
-                total: totalPerguntas,
-                porcentagem: porcentagemAcerto,
-                sequencia: sequencia,
-                materia: materia
-            }
-        });
-
-    } catch (error) {
-        handleError(res, error, 'Erro ao registrar desafio');
-    }
-});
-
-// ✅ ROTA PARA OBTER HISTÓRICO DE DESAFIOS (opcional)
-app.get('/api/desafios/:usuarioId', async (req, res) => {
-    try {
-        const usuarioId = validateId(req.params.usuarioId);
-        if (!usuarioId) {
-            return res.status(400).json({ error: 'ID do usuário inválido' });
-        }
-
-        // Aqui você implementaria a busca do histórico
-        // Por enquanto retorna uma lista vazia
-        res.json({
-            success: true,
-            historico: []
-        });
-        
-    } catch (error) {
-        handleError(res, error, 'Erro ao buscar histórico de desafios');
-    }
 });
 
 // ✅ PUT ATUALIZAR USUÁRIO
@@ -524,7 +409,6 @@ app.put('/api/usuarios/:id', async (req, res) => {
 
     // ✅ VALIDAÇÃO: Verificar se novo RA já existe (se foi alterado)
     if (ra && ra !== usuarioExistente.ra) {
-      // ✅ VALIDAÇÃO DO RA (4 dígitos)
       if (!/^\d{4}$/.test(ra.toString().trim())) {
           return res.status(400).json({
               error: 'RA inválido',
@@ -547,7 +431,6 @@ app.put('/api/usuarios/:id', async (req, res) => {
       atualizadoEm: new Date()
     };
 
-    // ✅ Atualizar apenas campos fornecidos
     if (nome !== undefined) updateData.nome = nome.trim();
     if (ra !== undefined) updateData.ra = ra.toString().trim();
     if (serie !== undefined) updateData.serie = serie.trim();
@@ -611,9 +494,9 @@ app.delete('/api/usuarios/:id', async (req, res) => {
   }
 });
 
-// ========== SISTEMA DE DESAFIOS (ADMIN) ========== //
+// ========== SISTEMA DE DESAFIOS (CRUD) ========== //
 
-// ✅ GET TODOS OS DESAFIOS
+// ✅ GET TODOS OS DESAFIOS (ADMIN)
 app.get('/api/desafios', async (req, res) => {
   try {
     console.log('🎯 Buscando todos os desafios...');
@@ -636,7 +519,7 @@ app.get('/api/desafios', async (req, res) => {
   }
 });
 
-// ✅ GET DESAFIO POR ID
+// ✅ GET DESAFIO POR ID (ADMIN)
 app.get('/api/desafios/:id', async (req, res) => {
   try {
     const desafioId = validateId(req.params.id);
@@ -666,7 +549,7 @@ app.get('/api/desafios/:id', async (req, res) => {
   }
 });
 
-// ✅ POST CRIAR DESAFIO
+// ✅ POST CRIAR DESAFIO (ADMIN)
 app.post('/api/desafios', async (req, res) => {
   try {
     console.log('🎯 Recebendo requisição para criar desafio...');
@@ -744,7 +627,6 @@ app.post('/api/desafios', async (req, res) => {
 
     // ✅ CRIAR DESAFIO E PERGUNTAS EM UMA TRANSAÇÃO
     const novoDesafio = await prisma.$transaction(async (tx) => {
-      // Criar o desafio
       const desafio = await tx.desafio.create({
         data: {
           titulo: titulo.trim(),
@@ -764,7 +646,6 @@ app.post('/api/desafios', async (req, res) => {
 
       console.log(`✅ Desafio criado com ID: ${desafio.id}`);
 
-      // Criar as perguntas
       for (let i = 0; i < perguntas.length; i++) {
         const perguntaData = perguntas[i];
         
@@ -786,7 +667,6 @@ app.post('/api/desafios', async (req, res) => {
 
       console.log(`✅ ${perguntas.length} perguntas criadas`);
 
-      // Retornar o desafio completo com perguntas
       return await tx.desafio.findUnique({
         where: { id: desafio.id },
         include: {
@@ -811,7 +691,7 @@ app.post('/api/desafios', async (req, res) => {
   }
 });
 
-// ✅ PUT ATUALIZAR DESAFIO
+// ✅ PUT ATUALIZAR DESAFIO (ADMIN)
 app.put('/api/desafios/:id', async (req, res) => {
   try {
     const desafioId = validateId(req.params.id);
@@ -835,7 +715,6 @@ app.put('/api/desafios/:id', async (req, res) => {
       perguntas 
     } = req.body;
 
-    // ✅ VERIFICAR SE DESAFIO EXISTE
     const desafioExistente = await prisma.desafio.findUnique({
       where: { id: desafioId },
       include: { perguntas: true }
@@ -845,7 +724,6 @@ app.put('/api/desafios/:id', async (req, res) => {
       return res.status(404).json({ error: 'Desafio não encontrado' });
     }
 
-    // ✅ VALIDAR PERGUNTAS SE FORNECIDAS
     if (perguntas && Array.isArray(perguntas)) {
       if (perguntas.length < 3) {
         return res.status(400).json({
@@ -854,7 +732,6 @@ app.put('/api/desafios/:id', async (req, res) => {
         });
       }
 
-      // Validar cada pergunta
       for (let i = 0; i < perguntas.length; i++) {
         const pergunta = perguntas[i];
         
@@ -874,9 +751,7 @@ app.put('/api/desafios/:id', async (req, res) => {
       }
     }
 
-    // ✅ ATUALIZAR EM TRANSAÇÃO
     const desafioAtualizado = await prisma.$transaction(async (tx) => {
-      // Dados para atualizar
       const updateData = { 
         atualizadoEm: new Date()
       };
@@ -892,21 +767,17 @@ app.put('/api/desafios/:id', async (req, res) => {
       if (dataInicio !== undefined) updateData.dataInicio = dataInicio ? new Date(dataInicio) : null;
       if (dataFim !== undefined) updateData.dataFim = dataFim ? new Date(dataFim) : null;
 
-      // Atualizar desafio
       const desafio = await tx.desafio.update({
         where: { id: desafioId },
         data: updateData
       });
 
-      // ✅ ATUALIZAR PERGUNTAS SE FORNECIDAS
       if (perguntas && Array.isArray(perguntas)) {
-        // Marcar perguntas antigas como inativas
         await tx.perguntaDesafio.updateMany({
           where: { desafioId: desafioId },
           data: { ativo: false }
         });
 
-        // Criar novas perguntas
         for (let i = 0; i < perguntas.length; i++) {
           const perguntaData = perguntas[i];
           
@@ -929,7 +800,6 @@ app.put('/api/desafios/:id', async (req, res) => {
         console.log(`✅ ${perguntas.length} perguntas atualizadas`);
       }
 
-      // Retornar desafio atualizado
       return await tx.desafio.findUnique({
         where: { id: desafioId },
         include: {
@@ -954,7 +824,7 @@ app.put('/api/desafios/:id', async (req, res) => {
   }
 });
 
-// ✅ DELETE DESAFIO
+// ✅ DELETE DESAFIO (ADMIN)
 app.delete('/api/desafios/:id', async (req, res) => {
   try {
     const desafioId = validateId(req.params.id);
@@ -964,7 +834,6 @@ app.delete('/api/desafios/:id', async (req, res) => {
 
     console.log(`🗑️ Excluindo desafio ID: ${desafioId}`);
 
-    // ✅ VERIFICAR SE DESAFIO EXISTE
     const desafioExistente = await prisma.desafio.findUnique({
       where: { id: desafioId }
     });
@@ -973,7 +842,6 @@ app.delete('/api/desafios/:id', async (req, res) => {
       return res.status(404).json({ error: 'Desafio não encontrado' });
     }
 
-    // ✅ DELETE LÓGICO (marcar como inativo)
     await prisma.desafio.update({
       where: { id: desafioId },
       data: {
@@ -994,6 +862,8 @@ app.delete('/api/desafios/:id', async (req, res) => {
     handleError(res, error, 'Erro ao excluir desafio');
   }
 });
+
+// ========== SISTEMA DE DESAFIOS (USUÁRIO) ========== //
 
 // ✅ GET DESAFIOS ATIVOS PARA USUÁRIOS
 app.get('/api/desafios-ativos', async (req, res) => {
@@ -1030,7 +900,6 @@ app.get('/api/desafios-ativos', async (req, res) => {
         descricao: true,
         maxTentativas: true,
         dataFim: true,
-        // Não incluir perguntas para evitar "spoiler"
         _count: {
           select: { perguntas: true }
         }
@@ -1077,7 +946,6 @@ app.get('/api/desafios/:id/perguntas', async (req, res) => {
             alternativaC: true,
             alternativaD: true,
             ordem: true
-            // Não enviar a resposta correta ainda
           },
           orderBy: { ordem: 'asc' }
         }
@@ -1088,7 +956,6 @@ app.get('/api/desafios/:id/perguntas', async (req, res) => {
       return res.status(404).json({ error: 'Desafio não encontrado ou inativo' });
     }
 
-    // Embaralhar alternativas de cada pergunta
     const perguntasEmbaralhadas = desafio.perguntas.map(pergunta => {
       const alternativas = [
         { letra: 'A', texto: pergunta.alternativaA },
@@ -1097,7 +964,6 @@ app.get('/api/desafios/:id/perguntas', async (req, res) => {
         { letra: 'D', texto: pergunta.alternativaD }
       ];
       
-      // Embaralhar mantendo o controle da correta
       const alternativasEmbaralhadas = [...alternativas].sort(() => Math.random() - 0.5);
       
       return {
@@ -1137,7 +1003,6 @@ app.post('/api/desafios/:id/verificar', async (req, res) => {
 
     console.log(`📝 Verificando respostas do desafio ID: ${desafioId} para usuário: ${usuarioId}`);
 
-    // ✅ BUSCAR DESAFIO E PERGUNTAS
     const desafio = await prisma.desafio.findUnique({
       where: { 
         id: desafioId,
@@ -1155,7 +1020,6 @@ app.post('/api/desafios/:id/verificar', async (req, res) => {
       return res.status(404).json({ error: 'Desafio não encontrado ou inativo' });
     }
 
-    // ✅ BUSCAR USUÁRIO
     const usuario = await prisma.usuario.findUnique({
       where: { id: parseInt(usuarioId) }
     });
@@ -1164,7 +1028,6 @@ app.post('/api/desafios/:id/verificar', async (req, res) => {
       return res.status(404).json({ error: 'Usuário não encontrado' });
     }
 
-    // ✅ VERIFICAR SE USUÁRIO PODE FAZER O DESAFIO
     const agora = new Date();
     if (desafio.dataFim && new Date(desafio.dataFim) < agora) {
       return res.status(400).json({ 
@@ -1173,10 +1036,6 @@ app.post('/api/desafios/:id/verificar', async (req, res) => {
       });
     }
 
-    // ✅ VERIFICAR NÚMERO DE TENTATIVAS (implementação futura)
-    // Você pode criar uma tabela para registrar tentativas
-
-    // ✅ VERIFICAR RESPOSTAS
     let acertos = 0;
     const resultadoDetalhado = [];
 
@@ -1199,23 +1058,20 @@ app.post('/api/desafios/:id/verificar', async (req, res) => {
 
     const porcentagemAcerto = (acertos / desafio.perguntas.length) * 100;
     
-    // ✅ CALCULAR PONTUAÇÃO
     let pontuacaoGanha = desafio.pontuacao;
     
     if (porcentagemAcerto < 50) {
-      pontuacaoGanha = Math.floor(pontuacaoGanha * 0.5); // 50% da pontuação
+      pontuacaoGanha = Math.floor(pontuacaoGanha * 0.5);
     } else if (porcentagemAcerto < 75) {
-      pontuacaoGanha = Math.floor(pontuacaoGanha * 0.75); // 75% da pontuação
+      pontuacaoGanha = Math.floor(pontuacaoGanha * 0.75);
     } else if (porcentagemAcerto < 90) {
-      pontuacaoGanha = Math.floor(pontuacaoGanha * 0.9); // 90% da pontuação
+      pontuacaoGanha = Math.floor(pontuacaoGanha * 0.9);
     }
     
-    // ✅ BÔNUS POR ACERTO TOTAL
     if (acertos === desafio.perguntas.length) {
-      pontuacaoGanha += Math.floor(pontuacaoGanha * 0.2); // +20% bônus
+      pontuacaoGanha += Math.floor(pontuacaoGanha * 0.2);
     }
 
-    // ✅ ATUALIZAR USUÁRIO
     const novaPontuacao = usuario.pontuacao + pontuacaoGanha;
     const novosDesafios = usuario.desafiosCompletados + 1;
 
@@ -1228,7 +1084,6 @@ app.post('/api/desafios/:id/verificar', async (req, res) => {
       }
     });
 
-    // ✅ REGISTRAR HISTÓRICO DA TENTATIVA
     try {
       await prisma.historicoDesafio.create({
         data: {
@@ -1376,7 +1231,6 @@ app.post('/api/cursos', async (req, res) => {
   try {
     const { titulo, descricao, materia, categoria, nivel, duracao, imagem, ativo, modulos } = req.body;
 
-    // ✅ VALIDAÇÃO
     const requiredFields = ['titulo', 'materia', 'categoria', 'nivel', 'duracao'];
     const missingFields = requiredFields.filter(field => !req.body[field]);
 
@@ -1401,7 +1255,6 @@ app.post('/api/cursos', async (req, res) => {
         }
       });
 
-      // ✅ CRIAÇÃO DE MÓDULOS E AULAS
       if (modulos && Array.isArray(modulos)) {
         for (const moduloData of modulos) {
           if (!moduloData.titulo) continue;
@@ -1470,7 +1323,6 @@ app.put('/api/cursos/:id', async (req, res) => {
 
     const updateData = { atualizadoEm: new Date() };
     
-    // ✅ Atualizar apenas campos fornecidos
     if (titulo !== undefined) updateData.titulo = titulo.trim();
     if (descricao !== undefined) updateData.descricao = descricao.trim();
     if (materia !== undefined) updateData.materia = materia.trim();
@@ -1504,7 +1356,6 @@ app.delete('/api/cursos/:id', async (req, res) => {
     const cursoExistente = await prisma.curso.findUnique({ where: { id: cursoId } });
     if (!cursoExistente) return res.status(404).json({ error: 'Curso não encontrado' });
 
-    // ✅ DELETE LÓGICO
     await prisma.curso.update({
       where: { id: cursoId },
       data: { 
@@ -1542,7 +1393,6 @@ app.post('/api/videos', async (req, res) => {
   try {
     const { titulo, materia, categoria, url, descricao, duracao } = req.body;
 
-    // ✅ VALIDAÇÃO
     const requiredFields = ['titulo', 'materia', 'categoria', 'url', 'duracao'];
     const missingFields = requiredFields.filter(field => !req.body[field]);
 
@@ -1586,7 +1436,6 @@ app.put('/api/videos/:id', async (req, res) => {
     const { titulo, materia, categoria, url, descricao, duracao } = req.body;
     const updateData = {};
     
-    // ✅ Atualizar apenas campos fornecidos
     if (titulo !== undefined) updateData.titulo = titulo.trim();
     if (materia !== undefined) updateData.materia = materia.trim();
     if (categoria !== undefined) updateData.categoria = categoria.trim();
@@ -1687,7 +1536,6 @@ async function startServer() {
     try {
         console.log('🚀 Iniciando servidor Coliseum API...');
         
-        // Tentar conectar ao banco primeiro
         const dbConnected = await initializeDatabase();
         
         if (!dbConnected) {
@@ -1695,7 +1543,6 @@ async function startServer() {
             process.exit(1);
         }
         
-        // Iniciar servidor
         const server = app.listen(PORT, '0.0.0.0', () => {
             console.log(`\n📍 Servidor rodando na porta ${PORT}`);
             console.log(`🌐 URL: http://localhost:${PORT}`);
@@ -1703,7 +1550,6 @@ async function startServer() {
             console.log(`\n✨ API Coliseum totalmente operacional!`);
         });
         
-        // ✅ Configurar keep-alive para evitar timeout
         server.keepAliveTimeout = 120000;
         server.headersTimeout = 120000;
         
@@ -1731,4 +1577,3 @@ process.on('SIGTERM', async () => {
 
 // Iniciar servidor
 startServer();
-
