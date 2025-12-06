@@ -1209,12 +1209,12 @@ app.get('/api/cursos', async (req, res) => {
 });
 
 // ✅ POST CRIAR CURSO
+// ✅ POST CRIAR CURSO
 app.post('/api/cursos', async (req, res) => {
   try {
     console.log('📝 Recebendo requisição POST /api/cursos');
-    console.log('📦 Dados recebidos:', JSON.stringify(req.body, null, 2));
-
-    const { titulo, descricao, materia, categoria, nivel, duracao, imagem, ativo, modulos } = req.body;
+    
+    const { titulo, descricao, materia, categoria, nivel, duracao, imagem, ativo = true, modulos } = req.body;
 
     // ✅ VALIDAÇÃO
     const requiredFields = ['titulo', 'materia', 'categoria', 'nivel', 'duracao'];
@@ -1241,7 +1241,7 @@ app.post('/api/cursos', async (req, res) => {
           nivel: nivel.trim(),
           duracao: parseInt(duracao),
           imagem: imagem?.trim() || null,
-          ativo: ativo !== undefined ? ativo : true,
+          ativo: ativo,
           criadoEm: new Date(),
           atualizadoEm: new Date()
         }
@@ -1292,6 +1292,7 @@ app.post('/api/cursos', async (req, res) => {
                 }
               });
             }
+            console.log(`✅ ${moduloData.aulas.length} aulas criadas para módulo ${i + 1}`);
           }
         }
 
@@ -1313,7 +1314,7 @@ app.post('/api/cursos', async (req, res) => {
       });
     });
 
-    console.log('🎉 Curso criado com sucesso! ID:', novoCurso.id);
+    console.log('🎉 Curso criado com sucesso!');
 
     res.status(201).json({
       success: true,
@@ -1323,7 +1324,26 @@ app.post('/api/cursos', async (req, res) => {
 
   } catch (error) {
     console.error('❌ Erro ao criar curso:', error);
-    handleError(res, error, 'Erro ao criar curso');
+    
+    // Mostrar erro mais detalhado
+    if (error.code === 'P2003') {
+      return res.status(400).json({
+        error: 'Erro de chave estrangeira',
+        details: 'O curso ou módulo relacionado não existe'
+      });
+    }
+    
+    if (error.code === 'P2002') {
+      return res.status(409).json({
+        error: 'Conflito de dados',
+        details: 'Já existe um curso com esses dados'
+      });
+    }
+    
+    res.status(500).json({
+      error: 'Erro ao criar curso',
+      details: process.env.NODE_ENV === 'development' ? error.message : 'Erro interno'
+    });
   }
 });
 
@@ -1727,4 +1747,5 @@ process.on('SIGTERM', async () => {
 
 // Inicia o servidor
 startServer();
+
 
