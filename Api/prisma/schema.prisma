@@ -1,5 +1,6 @@
 generator client {
   provider = "prisma-client-js"
+  previewFeatures = ["filterJson"]
 }
 
 datasource db {
@@ -7,162 +8,239 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum UsuarioStatus {
+  ATIVO
+  INATIVO
+  BLOQUEADO
+  PENDENTE
+}
+
+enum DesafioStatus {
+  ATIVO
+  INATIVO
+  RASCUNHO
+  EXPIRADO
+}
+
+enum CursoStatus {
+  ATIVO
+  INATIVO
+  EM_DESENVOLVIMENTO
+}
+
 model Usuario {
   id                  Int                 @id @default(autoincrement())
-  ra                  String              @unique
-  nome                String
-  senha               String
-  serie               String
-  curso               String              @default("matematica")
-  status              String              @default("ativo")
+  ra                  String              @unique @db.VarChar(4)
+  nome                String              @db.VarChar(100)
+  senha               String              @db.VarChar(100)
+  serie               String              @db.VarChar(50)
+  curso               String              @default("matematica") @db.VarChar(50)
+  status              UsuarioStatus       @default(ATIVO)
   pontuacao           Int                 @default(0)
   desafiosCompletados Int                 @default(0)
+  email               String?             @db.VarChar(100)
+  telefone            String?             @db.VarChar(20)
+  dataNascimento      DateTime?
+  avatarUrl           String?             @db.VarChar(500)
+  ultimoLogin         DateTime?
   criadoEm            DateTime            @default(now())
   atualizadoEm        DateTime            @updatedAt
 
   progressosCursos    ProgressoCurso[]
   progressosAulas     ProgressoAula[]
-  historicoDesafios   HistoricoDesafio[]  // ✅ ADICIONE ESTA LINHA
+  historicoDesafios   HistoricoDesafio[]
 
-  @@map("Usuario")
+  @@map("usuarios")
+  @@index([nome])
+  @@index([serie])
+  @@index([curso])
+  @@index([pontuacao])
+  @@index([status])
+  @@index([criadoEm])
+  @@index([atualizadoEm])
 }
 
 model Video {
   id        Int      @id @default(autoincrement())
-  titulo    String
-  materia   String
-  categoria String
-  url       String
-  descricao String?
+  titulo    String   @db.VarChar(200)
+  materia   String   @db.VarChar(50)
+  categoria String   @db.VarChar(50)
+  url       String   @db.VarChar(500)
+  descricao String?  @db.Text
   duracao   Int
+  views     Int      @default(0)
+  likes     Int      @default(0)
+  ativo     Boolean  @default(true)
   criadoEm  DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
 
   @@map("videos")
+  @@index([materia])
+  @@index([categoria])
+  @@index([ativo])
+  @@index([criadoEm])
 }
 
 model Desafio {
-  id                Int         @id @default(autoincrement())
-  titulo            String
-  descricao         String?
-  materia           String
-  nivel             String
-  pontuacao         Int         @default(20)
-  duracao           Int         @default(15)
-  status            String      @default("ativo")
-  maxTentativas     Int         @default(1)
+  id                Int           @id @default(autoincrement())
+  titulo            String        @db.VarChar(200)
+  descricao         String?       @db.Text
+  materia           String        @db.VarChar(50)
+  nivel             String        @db.VarChar(20)
+  pontuacao         Int           @default(20)
+  duracao           Int           @default(15)
+  status            DesafioStatus @default(ATIVO)
+  maxTentativas     Int           @default(1)
   dataInicio        DateTime?
   dataFim           DateTime?
+  imagemUrl         String?       @db.VarChar(500)
+  tags              String[]      @db.VarChar(50)[]
   
   perguntas         PerguntaDesafio[]
   historico         HistoricoDesafio[]
   
-  criadoEm          DateTime    @default(now())
-  atualizadoEm      DateTime    @updatedAt
+  criadoEm          DateTime      @default(now())
+  atualizadoEm      DateTime      @updatedAt
   
+  @@map("desafios")
   @@index([status])
   @@index([materia])
+  @@index([nivel])
   @@index([dataFim])
+  @@index([criadoEm])
+  @@index([tags])
 }
 
 model PerguntaDesafio {
-  id                Int         @id @default(autoincrement())
-  pergunta          String
-  alternativaA      String
-  alternativaB      String
-  alternativaC      String
-  alternativaD      String
-  correta           Int
-  explicacao        String?
-  ordem             Int         @default(1)
-  ativo             Boolean     @default(true)
+  id                Int       @id @default(autoincrement())
+  pergunta          String    @db.Text
+  alternativaA      String    @db.VarChar(500)
+  alternativaB      String    @db.VarChar(500)
+  alternativaC      String    @db.VarChar(500)
+  alternativaD      String    @db.VarChar(500)
+  correta           Int       @default(0)
+  explicacao        String?   @db.Text
+  ordem             Int       @default(1)
+  ativo             Boolean   @default(true)
+  dificuldade       Int       @default(1) @db.SmallInt
   
   desafioId         Int
-  desafio           Desafio     @relation(fields: [desafioId], references: [id], onDelete: Cascade)
+  desafio           Desafio   @relation(fields: [desafioId], references: [id], onDelete: Cascade)
   
-  criadoEm          DateTime    @default(now())
-  atualizadoEm      DateTime    @updatedAt
+  criadoEm          DateTime  @default(now())
+  atualizadoEm      DateTime  @updatedAt
   
+  @@map("perguntas_desafio")
   @@index([desafioId])
+  @@index([ativo])
+  @@index([dificuldade])
   @@unique([desafioId, ordem])
 }
 
 model HistoricoDesafio {
-  id                Int         @id @default(autoincrement())
+  id                Int       @id @default(autoincrement())
   pontuacaoGanha    Int
   acertos           Int
   totalPerguntas    Int
-  porcentagemAcerto Float
-  dataConclusao     DateTime    @default(now())
+  porcentagemAcerto Float     @db.Decimal(5,2)
+  tempoUtilizado    Int?      // Em segundos
+  respostas         Json?     // Respostas do usuário
+  dataConclusao     DateTime  @default(now())
   
   usuarioId         Int
   desafioId         Int
-  usuario           Usuario     @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
-  desafio           Desafio     @relation(fields: [desafioId], references: [id], onDelete: Cascade)
+  usuario           Usuario   @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  desafio           Desafio   @relation(fields: [desafioId], references: [id], onDelete: Cascade)
   
-  criadoEm          DateTime    @default(now())
+  criadoEm          DateTime  @default(now())
   
+  @@map("historico_desafios")
   @@index([usuarioId])
   @@index([desafioId])
   @@index([dataConclusao])
+  @@index([porcentagemAcerto])
+  @@unique([usuarioId, desafioId, dataConclusao])
 }
 
 model Curso {
-  id          Int               @id @default(autoincrement())
-  titulo      String
-  descricao   String?
-  materia     String
-  categoria   String
-  nivel       String
+  id          Int         @id @default(autoincrement())
+  titulo      String      @db.VarChar(200)
+  descricao   String?     @db.Text
+  materia     String      @db.VarChar(50)
+  categoria   String      @db.VarChar(50)
+  nivel       String      @db.VarChar(20)
   duracao     Int
-  imagem      String?
-  ativo       Boolean           @default(true)
-  criadoEm    DateTime          @default(now())
-  atualizadoEm DateTime         @updatedAt
+  imagem      String?     @db.VarChar(500)
+  ativo       Boolean     @default(true)
+  preco       Float?      @db.Decimal(10,2)
+  rating      Float       @default(0) @db.Decimal(3,2)
+  totalAulas  Int         @default(0)
+  alunos      Int         @default(0)
+  criadoEm    DateTime    @default(now())
+  atualizadoEm DateTime   @updatedAt
 
   modulos     Modulo[]
   progressos  ProgressoCurso[]
 
   @@map("cursos")
+  @@index([materia])
+  @@index([categoria])
+  @@index([nivel])
+  @@index([ativo])
+  @@index([rating])
+  @@index([criadoEm])
 }
 
 model Modulo {
-  id          Int      @id @default(autoincrement())
-  titulo      String
-  descricao   String?
-  ordem       Int      @default(1)
-  ativo       Boolean  @default(true)
+  id          Int       @id @default(autoincrement())
+  titulo      String    @db.VarChar(200)
+  descricao   String?   @db.Text
+  ordem       Int       @default(1)
+  ativo       Boolean   @default(true)
   cursoId     Int
-  criadoEm    DateTime @default(now())
+  criadoEm    DateTime  @default(now())
+  atualizadoEm DateTime @updatedAt
 
-  curso       Curso    @relation(fields: [cursoId], references: [id], onDelete: Cascade)
+  curso       Curso     @relation(fields: [cursoId], references: [id], onDelete: Cascade)
   aulas       Aula[]
 
   @@map("modulos")
+  @@index([cursoId])
+  @@index([ordem])
+  @@unique([cursoId, ordem])
 }
 
 model Aula {
   id          Int               @id @default(autoincrement())
-  titulo      String
-  descricao   String?
-  conteudo    String?
-  videoUrl    String?
+  titulo      String            @db.VarChar(200)
+  descricao   String?           @db.Text
+  conteudo    String?           @db.Text
+  videoUrl    String?           @db.VarChar(500)
   duracao     Int               @default(15)
   ordem       Int               @default(1)
   ativo       Boolean           @default(true)
+  tipo        String            @default("video") @db.VarChar(20)
+  recursos    String[]          @db.VarChar(100)[]
   moduloId    Int
   criadoEm    DateTime          @default(now())
+  atualizadoEm DateTime         @updatedAt
 
   modulo      Modulo            @relation(fields: [moduloId], references: [id], onDelete: Cascade)
   progressos  ProgressoAula[]
 
   @@map("aulas")
+  @@index([moduloId])
+  @@index([ordem])
+  @@index([tipo])
+  @@unique([moduloId, ordem])
 }
 
 model ProgressoCurso {
   id          Int       @id @default(autoincrement())
-  progresso   Float     @default(0)
+  progresso   Float     @default(0) @db.Decimal(5,2)
   concluido   Boolean   @default(false)
   ultimaAula  Int?
+  dataConclusao DateTime?
   usuarioId   Int
   cursoId     Int
   criadoEm    DateTime  @default(now())
@@ -171,22 +249,30 @@ model ProgressoCurso {
   usuario     Usuario   @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
   curso       Curso     @relation(fields: [cursoId], references: [id], onDelete: Cascade)
 
-  @@unique([usuarioId, cursoId])
   @@map("progresso_cursos")
+  @@unique([usuarioId, cursoId])
+  @@index([usuarioId])
+  @@index([cursoId])
+  @@index([concluido])
 }
 
 model ProgressoAula {
   id              Int       @id @default(autoincrement())
   concluida       Boolean   @default(false)
   dataConclusao   DateTime?
+  tempoAssistido  Int?      // Em segundos
   usuarioId       Int
   aulaId          Int
   cursoId         Int
   criadoEm        DateTime  @default(now())
+  atualizadoEm    DateTime  @updatedAt
 
   usuario         Usuario   @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
   aula            Aula      @relation(fields: [aulaId], references: [id], onDelete: Cascade)
 
-  @@unique([usuarioId, aulaId])
   @@map("progresso_aulas")
+  @@unique([usuarioId, aulaId])
+  @@index([usuarioId])
+  @@index([aulaId])
+  @@index([concluida])
 }
