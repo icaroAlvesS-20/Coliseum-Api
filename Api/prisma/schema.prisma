@@ -102,7 +102,7 @@ model HistoricoDesafio {
   @@map("historico_desafios")
 }
 
-// ========== NOVOS MODELOS ========== //
+// ========== MODELOS DE CURSOS ========== //
 
 model Curso {
   id        Int      @id @default(autoincrement())
@@ -117,6 +117,7 @@ model Curso {
   
   modulos   Modulo[]
   progressos ProgressoCurso[]
+  progressoAulas ProgressoAula[]
   
   criadoEm  DateTime @default(now())
   atualizadoEm DateTime @updatedAt
