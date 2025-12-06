@@ -1,6 +1,5 @@
 generator client {
   provider = "prisma-client-js"
-  previewFeatures = ["filterJson"]
 }
 
 datasource db {
@@ -94,7 +93,7 @@ model Desafio {
   dataInicio        DateTime?
   dataFim           DateTime?
   imagemUrl         String?       @db.VarChar(500)
-  tags              String[]      @db.VarChar(50)[]
+  tags              String        @db.Text // Armazenar como JSON string
   
   perguntas         PerguntaDesafio[]
   historico         HistoricoDesafio[]
@@ -108,7 +107,6 @@ model Desafio {
   @@index([nivel])
   @@index([dataFim])
   @@index([criadoEm])
-  @@index([tags])
 }
 
 model PerguntaDesafio {
@@ -122,7 +120,7 @@ model PerguntaDesafio {
   explicacao        String?   @db.Text
   ordem             Int       @default(1)
   ativo             Boolean   @default(true)
-  dificuldade       Int       @default(1) @db.SmallInt
+  dificuldade       Int       @default(1)
   
   desafioId         Int
   desafio           Desafio   @relation(fields: [desafioId], references: [id], onDelete: Cascade)
@@ -142,9 +140,9 @@ model HistoricoDesafio {
   pontuacaoGanha    Int
   acertos           Int
   totalPerguntas    Int
-  porcentagemAcerto Float     @db.Decimal(5,2)
+  porcentagemAcerto Float     
   tempoUtilizado    Int?      // Em segundos
-  respostas         Json?     // Respostas do usuário
+  respostas         String?   @db.Text // Armazenar como JSON string
   dataConclusao     DateTime  @default(now())
   
   usuarioId         Int
@@ -172,8 +170,8 @@ model Curso {
   duracao     Int
   imagem      String?     @db.VarChar(500)
   ativo       Boolean     @default(true)
-  preco       Float?      @db.Decimal(10,2)
-  rating      Float       @default(0) @db.Decimal(3,2)
+  preco       Float?      
+  rating      Float       @default(0)
   totalAulas  Int         @default(0)
   alunos      Int         @default(0)
   criadoEm    DateTime    @default(now())
@@ -220,7 +218,7 @@ model Aula {
   ordem       Int               @default(1)
   ativo       Boolean           @default(true)
   tipo        String            @default("video") @db.VarChar(20)
-  recursos    String[]          @db.VarChar(100)[]
+  recursos    String            @db.Text // Armazenar como JSON string
   moduloId    Int
   criadoEm    DateTime          @default(now())
   atualizadoEm DateTime         @updatedAt
@@ -237,7 +235,7 @@ model Aula {
 
 model ProgressoCurso {
   id          Int       @id @default(autoincrement())
-  progresso   Float     @default(0) @db.Decimal(5,2)
+  progresso   Float     @default(0)
   concluido   Boolean   @default(false)
   ultimaAula  Int?
   dataConclusao DateTime?
