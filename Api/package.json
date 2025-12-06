@@ -5,26 +5,22 @@
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
-    "build": "npm install && npx prisma generate",
+    "build": "npm install && npx prisma generate && npx prisma db push --force-reset",
     "prisma:generate": "prisma generate",
-    "prisma:push": "prisma db push --accept-data-loss",
+    "prisma:push": "prisma db push --force-reset",
     "prisma:studio": "prisma studio",
     "prisma:migrate": "prisma migrate deploy",
+    "prisma:migrate:dev": "prisma migrate dev --name init",
     "healthcheck": "node -e \"fetch('http://localhost:10000/api/health').then(res => process.exit(res.status === 200 ? 0 : 1)).catch(() => process.exit(1))\""
   },
   "dependencies": {
-    "@prisma/client": "^5.7.0",
-    "express": "^4.18.2",
-    "cors": "^2.8.5",
-    "bcrypt": "^5.1.1",
-    "jsonwebtoken": "^9.0.2",
-    "helmet": "^7.0.0",
-    "express-rate-limit": "^7.1.5",
-    "compression": "^1.7.4"
+    "@prisma/client": "^5.22.0",
+    "express": "^4.21.1",
+    "cors": "^2.8.5"
   },
   "devDependencies": {
-    "prisma": "^5.7.0",
-    "nodemon": "^3.0.1"
+    "prisma": "^5.22.0",
+    "nodemon": "^3.1.9"
   },
   "prisma": {
     "schema": "./prisma/schema.prisma"
