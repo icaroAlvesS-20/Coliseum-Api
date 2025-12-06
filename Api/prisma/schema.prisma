@@ -21,8 +21,10 @@ model Usuario {
   atualizadoEm        DateTime @updatedAt
 
   historicoDesafios   HistoricoDesafio[]
+  progressoCursos     ProgressoCurso[]
+  progressoAulas      ProgressoAula[]
   
-  @@map("usuarios")
+  @@map("Usuario")
 }
 
 model Video {
@@ -98,4 +100,99 @@ model HistoricoDesafio {
   criadoEm          DateTime @default(now())
   
   @@map("historico_desafios")
+}
+
+// ========== NOVOS MODELOS ========== //
+
+model Curso {
+  id        Int      @id @default(autoincrement())
+  titulo    String
+  descricao String?
+  materia   String
+  categoria String
+  nivel     String
+  duracao   Int
+  imagem    String?
+  ativo     Boolean  @default(true)
+  
+  modulos   Modulo[]
+  progressos ProgressoCurso[]
+  
+  criadoEm  DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+  
+  @@map("cursos")
+}
+
+model Modulo {
+  id        Int      @id @default(autoincrement())
+  titulo    String
+  descricao String?
+  ordem     Int      @default(1)
+  ativo     Boolean  @default(true)
+  
+  cursoId   Int
+  curso     Curso    @relation(fields: [cursoId], references: [id], onDelete: Cascade)
+  aulas     Aula[]
+  
+  criadoEm  DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+  
+  @@map("modulos")
+}
+
+model Aula {
+  id        Int      @id @default(autoincrement())
+  titulo    String
+  descricao String?
+  conteudo  String?
+  videoUrl  String?
+  duracao   Int      @default(15)
+  ordem     Int      @default(1)
+  ativo     Boolean  @default(true)
+  
+  moduloId  Int
+  modulo    Modulo   @relation(fields: [moduloId], references: [id], onDelete: Cascade)
+  progressos ProgressoAula[]
+  
+  criadoEm  DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+  
+  @@map("aulas")
+}
+
+model ProgressoCurso {
+  id          Int      @id @default(autoincrement())
+  progresso   Float    @default(0.0)
+  concluido   Boolean  @default(false)
+  ultimaAula  Int?
+  
+  usuarioId   Int
+  cursoId     Int
+  usuario     Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  curso       Curso    @relation(fields: [cursoId], references: [id], onDelete: Cascade)
+  
+  criadoEm    DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+  
+  @@unique([usuarioId, cursoId])
+  @@map("progresso_cursos")
+}
+
+model ProgressoAula {
+  id            Int      @id @default(autoincrement())
+  concluida     Boolean  @default(false)
+  dataConclusao DateTime?
+  
+  usuarioId     Int
+  aulaId        Int
+  cursoId       Int
+  usuario       Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  aula          Aula     @relation(fields: [aulaId], references: [id], onDelete: Cascade)
+  curso         Curso    @relation(fields: [cursoId], references: [id], onDelete: Cascade)
+  
+  criadoEm      DateTime @default(now())
+  
+  @@unique([usuarioId, aulaId])
+  @@map("progresso_aulas")
 }
