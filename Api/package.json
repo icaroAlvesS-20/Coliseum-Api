@@ -2,26 +2,43 @@
   "name": "coliseum-api",
   "version": "1.0.0",
   "type": "module",
+  "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
     "build": "npm install && npx prisma generate",
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push --accept-data-loss",
-    "prisma:studio": "prisma studio"
+    "prisma:studio": "prisma studio",
+    "render-build": "npm install && npx prisma generate",
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
-    "express": "^4.21.1",
-    "cors": "^2.8.5"
+    "cors": "^2.8.5",
+    "express": "^4.18.2"
   },
   "devDependencies": {
+    "nodemon": "^3.0.3",
     "prisma": "^5.22.0"
   },
   "prisma": {
     "schema": "./prisma/schema.prisma"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
+  "keywords": [
+    "api",
+    "education",
+    "challenges",
+    "learning"
+  ],
+  "author": "Coliseum Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/icaroAlvesS-20/Coliseum-Api"
   }
 }
