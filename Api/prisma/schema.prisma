@@ -21,8 +21,6 @@ model Usuario {
   atualizadoEm        DateTime @updatedAt
 
   historicoDesafios   HistoricoDesafio[]
-  progressoCursos     ProgressoCurso[]
-  progressoAulas      ProgressoAula[]
   
   @@map("Usuario")
 }
@@ -102,7 +100,7 @@ model HistoricoDesafio {
   @@map("historico_desafios")
 }
 
-// ========== MODELOS DE CURSOS ========== //
+// ========== MODELOS DE CURSOS SIMPLIFICADOS ========== //
 
 model Curso {
   id        Int      @id @default(autoincrement())
@@ -116,8 +114,6 @@ model Curso {
   ativo     Boolean  @default(true)
   
   modulos   Modulo[]
-  progressos ProgressoCurso[]
-  progressoAulas ProgressoAula[]
   
   criadoEm  DateTime @default(now())
   atualizadoEm DateTime @updatedAt
@@ -154,46 +150,9 @@ model Aula {
   
   moduloId  Int
   modulo    Modulo   @relation(fields: [moduloId], references: [id], onDelete: Cascade)
-  progressos ProgressoAula[]
   
   criadoEm  DateTime @default(now())
   atualizadoEm DateTime @updatedAt
   
   @@map("aulas")
-}
-
-model ProgressoCurso {
-  id          Int      @id @default(autoincrement())
-  progresso   Float    @default(0.0)
-  concluido   Boolean  @default(false)
-  ultimaAula  Int?
-  
-  usuarioId   Int
-  cursoId     Int
-  usuario     Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
-  curso       Curso    @relation(fields: [cursoId], references: [id], onDelete: Cascade)
-  
-  criadoEm    DateTime @default(now())
-  atualizadoEm DateTime @updatedAt
-  
-  @@unique([usuarioId, cursoId])
-  @@map("progresso_cursos")
-}
-
-model ProgressoAula {
-  id            Int      @id @default(autoincrement())
-  concluida     Boolean  @default(false)
-  dataConclusao DateTime?
-  
-  usuarioId     Int
-  aulaId        Int
-  cursoId       Int
-  usuario       Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
-  aula          Aula     @relation(fields: [aulaId], references: [id], onDelete: Cascade)
-  curso         Curso    @relation(fields: [cursoId], references: [id], onDelete: Cascade)
-  
-  criadoEm      DateTime @default(now())
-  
-  @@unique([usuarioId, aulaId])
-  @@map("progresso_aulas")
 }
