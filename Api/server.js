@@ -1179,6 +1179,7 @@ app.get('/api/usuarios/:usuarioId/historico-desafios', async (req, res) => {
 // ========== SISTEMA DE CURSOS ========== //
 
 // ✅ GET TODOS OS CURSOS
+// ✅ GET TODOS OS CURSOS
 app.get('/api/cursos', async (req, res) => {
   try {
     console.log('📚 Buscando todos os cursos...');
@@ -1202,7 +1203,127 @@ app.get('/api/cursos', async (req, res) => {
     console.log(`✅ ${cursos.length} cursos carregados`);
     res.json(cursos);
   } catch (error) {
+    console.error('❌ Erro ao carregar cursos:', error);
     handleError(res, error, 'Erro ao carregar cursos');
+  }
+});
+
+// ✅ POST CRIAR CURSO
+app.post('/api/cursos', async (req, res) => {
+  try {
+    console.log('📝 Recebendo requisição POST /api/cursos');
+    console.log('📦 Dados recebidos:', JSON.stringify(req.body, null, 2));
+
+    const { titulo, descricao, materia, categoria, nivel, duracao, imagem, ativo, modulos } = req.body;
+
+    // ✅ VALIDAÇÃO
+    const requiredFields = ['titulo', 'materia', 'categoria', 'nivel', 'duracao'];
+    const missingFields = requiredFields.filter(field => !req.body[field]);
+
+    if (missingFields.length > 0) {
+      return res.status(400).json({ 
+        error: 'Dados incompletos',
+        missingFields: missingFields,
+        message: 'Campos obrigatórios faltando'
+      });
+    }
+
+    console.log('📝 Dados válidados, criando curso...');
+
+    // ✅ CRIAR CURSO E MÓDULOS EM UMA TRANSAÇÃO
+    const novoCurso = await prisma.$transaction(async (tx) => {
+      const curso = await tx.curso.create({
+        data: {
+          titulo: titulo.trim(),
+          descricao: descricao?.trim() || '',
+          materia: materia.trim(),
+          categoria: categoria.trim(),
+          nivel: nivel.trim(),
+          duracao: parseInt(duracao),
+          imagem: imagem?.trim() || null,
+          ativo: ativo !== undefined ? ativo : true,
+          criadoEm: new Date(),
+          atualizadoEm: new Date()
+        }
+      });
+
+      console.log(`✅ Curso criado com ID: ${curso.id}`);
+
+      if (modulos && Array.isArray(modulos) && modulos.length > 0) {
+        for (let i = 0; i < modulos.length; i++) {
+          const moduloData = modulos[i];
+          
+          if (!moduloData.titulo || moduloData.titulo.trim() === '') {
+            throw new Error(`Módulo ${i + 1} não tem título`);
+          }
+
+          const modulo = await tx.modulo.create({
+            data: {
+              titulo: moduloData.titulo.trim(),
+              descricao: moduloData.descricao?.trim() || '',
+              ordem: moduloData.ordem || (i + 1),
+              cursoId: curso.id,
+              ativo: true,
+              criadoEm: new Date(),
+              atualizadoEm: new Date()
+            }
+          });
+
+          if (moduloData.aulas && Array.isArray(moduloData.aulas) && moduloData.aulas.length > 0) {
+            for (let j = 0; j < moduloData.aulas.length; j++) {
+              const aulaData = moduloData.aulas[j];
+              
+              if (!aulaData.titulo || aulaData.titulo.trim() === '') {
+                throw new Error(`Módulo ${i + 1}, Aula ${j + 1} não tem título`);
+              }
+
+              await tx.aula.create({
+                data: {
+                  titulo: aulaData.titulo.trim(),
+                  descricao: aulaData.descricao?.trim() || '',
+                  conteudo: aulaData.conteudo?.trim() || '',
+                  videoUrl: aulaData.videoUrl?.trim() || null,
+                  duracao: parseInt(aulaData.duracao) || 15,
+                  ordem: aulaData.ordem || (j + 1),
+                  moduloId: modulo.id,
+                  ativo: true,
+                  criadoEm: new Date(),
+                  atualizadoEm: new Date()
+                }
+              });
+            }
+          }
+        }
+
+        console.log(`✅ ${modulos.length} módulos criados`);
+      }
+
+      return await tx.curso.findUnique({
+        where: { id: curso.id },
+        include: {
+          modulos: {
+            include: { 
+              aulas: {
+                orderBy: { ordem: 'asc' }
+              }
+            },
+            orderBy: { ordem: 'asc' }
+          }
+        }
+      });
+    });
+
+    console.log('🎉 Curso criado com sucesso! ID:', novoCurso.id);
+
+    res.status(201).json({
+      success: true,
+      message: 'Curso criado com sucesso!',
+      curso: novoCurso
+    });
+
+  } catch (error) {
+    console.error('❌ Erro ao criar curso:', error);
+    handleError(res, error, 'Erro ao criar curso');
   }
 });
 
@@ -1606,3 +1727,4 @@ process.on('SIGTERM', async () => {
 
 // Inicia o servidor
 startServer();
+
