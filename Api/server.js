@@ -121,6 +121,34 @@ async function testDatabaseConnection() {
   }
 }
 
+// ========== DIAGNÓSTICO INICIAL ========== //
+console.log('🔍 DIAGNÓSTICO DO AMBIENTE:');
+console.log('1. Node Version:', process.version);
+console.log('2. Diretório atual:', process.cwd());
+console.log('3. NODE_ENV:', process.env.NODE_ENV || 'not set');
+console.log('4. PORT:', process.env.PORT || 'not set');
+console.log('5. DATABASE_URL:', process.env.DATABASE_URL ? '✅ Configurada' : '❌ NÃO CONFIGURADA');
+
+// Verificação crítica de variáveis
+if (!process.env.DATABASE_URL) {
+    console.error('❌ ERRO CRÍTICO: DATABASE_URL não configurada!');
+    console.error('Por favor, configure a variável DATABASE_URL no dashboard do Render.');
+    process.exit(1);
+}
+
+// Listar arquivos para debug
+try {
+    const fs = await import('fs');
+    console.log('📁 Conteúdo do diretório:');
+    const files = fs.readdirSync('.');
+    files.forEach(file => {
+        const stats = fs.statSync(file);
+        console.log(`  ${file} (${stats.isDirectory() ? 'diretório' : 'arquivo'})`);
+    });
+} catch (error) {
+    console.log('⚠️ Não foi possível listar arquivos:', error.message);
+}
+
 // ========== ROTAS BÁSICAS ========== //
 
 app.get('/', (req, res) => {
@@ -1574,3 +1602,4 @@ process.on('SIGTERM', async () => {
     await prisma.$disconnect();
     process.exit(0);
 });
+
