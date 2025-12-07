@@ -7,6 +7,7 @@ const PORT = process.env.PORT || 10000;
 
 // ========== CONFIGURAÇÕES ========== //
 
+// Configuração robusta do Prisma com connection pooling
 const prisma = new PrismaClient({
   log: ['warn', 'error'],
   errorFormat: 'minimal',
@@ -14,6 +15,11 @@ const prisma = new PrismaClient({
     db: {
       url: process.env.DATABASE_URL
     }
+  },
+  // Configurações para melhor performance em ambiente cloud
+  transactionOptions: {
+    maxWait: 5000,
+    timeout: 10000,
   }
 });
 
@@ -75,12 +81,33 @@ app.use(express.json({
   limit: '10mb'
 }));
 
-// ✅ MIDDLEWARE DE LOG
-app.use((req, res, next) => {
+// ========== MIDDLEWARE DE LOG E CONEXÃO ========== //
+
+app.use(async (req, res, next) => {
   console.log(`\n=== NOVA REQUISIÇÃO ===`);
   console.log(`[${new Date().toLocaleTimeString()}] ${req.method} ${req.path}`);
   console.log('📍 Origin:', req.headers.origin);
   console.log('📦 Body:', req.body);
+  
+  try {
+    // Verificar conexão com banco antes de cada requisição
+    await prisma.$queryRaw`SELECT 1`;
+    console.log('✅ Conexão com banco está ativa');
+  } catch (error) {
+    console.warn('⚠️ Conexão com banco perdida, tentando reconectar...');
+    try {
+      await prisma.$disconnect();
+      await prisma.$connect();
+      console.log('✅ Conexão restabelecida');
+    } catch (reconnectError) {
+      console.error('❌ Falha ao reconectar:', reconnectError.message);
+      return res.status(503).json({
+        error: 'Serviço temporariamente indisponível',
+        message: 'Problema de conexão com o banco de dados'
+      });
+    }
+  }
+  
   console.log(`=======================\n`);
   next();
 });
@@ -117,6 +144,13 @@ const handleError = (res, error, message = 'Erro interno do servidor') => {
     });
   }
   
+  if (error.code === 'P1017') {
+    return res.status(503).json({ 
+      error: 'Conexão com banco fechada',
+      details: 'A conexão com o banco de dados foi fechada'
+    });
+  }
+  
   res.status(500).json({ 
     error: message,
     details: process.env.NODE_ENV === 'development' ? error.message : 'Erro interno'
@@ -124,181 +158,6 @@ const handleError = (res, error, message = 'Erro interno do servidor') => {
 };
 
 // ========== CONEXÃO E CONFIGURAÇÃO DO BANCO ========== //
-
-async function setupDatabase() {
-  console.log('🔧 Iniciando configuração do banco de dados...');
-
-  try {
-    // 1. Criar tabela Usuario
-    console.log('📋 Criando tabela Usuario...');
-    await prisma.$executeRaw`
-      CREATE TABLE IF NOT EXISTS "Usuario" (
-        "id" SERIAL PRIMARY KEY,
-        "ra" VARCHAR(255) UNIQUE NOT NULL,
-        "nome" VARCHAR(255) NOT NULL,
-        "senha" VARCHAR(255) NOT NULL,
-        "serie" VARCHAR(255) NOT NULL,
-        "curso" VARCHAR(255) DEFAULT 'matematica',
-        "status" VARCHAR(255) DEFAULT 'ativo',
-        "pontuacao" INTEGER DEFAULT 0,
-        "desafiosCompletados" INTEGER DEFAULT 0,
-        "criadoEm" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP,
-        "atualizadoEm" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP
-      );
-    `;
-    console.log('✅ Tabela Usuario criada');
-
-    // 2. Criar tabela cursos
-    console.log('📚 Criando tabela cursos...');
-    await prisma.$executeRaw`
-      CREATE TABLE IF NOT EXISTS "cursos" (
-        "id" SERIAL PRIMARY KEY,
-        "titulo" VARCHAR(255) NOT NULL,
-        "descricao" TEXT,
-        "materia" VARCHAR(255) NOT NULL,
-        "categoria" VARCHAR(255) NOT NULL,
-        "nivel" VARCHAR(255) NOT NULL,
-        "duracao" INTEGER NOT NULL,
-        "imagem" VARCHAR(500),
-        "ativo" BOOLEAN DEFAULT true,
-        "criadoEm" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP,
-        "atualizadoEm" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP
-      );
-    `;
-    console.log('✅ Tabela cursos criada');
-
-    // 3. Criar tabela modulos
-    console.log('📦 Criando tabela modulos...');
-    await prisma.$executeRaw`
-      CREATE TABLE IF NOT EXISTS "modulos" (
-        "id" SERIAL PRIMARY KEY,
-        "titulo" VARCHAR(255) NOT NULL,
-        "descricao" TEXT,
-        "ordem" INTEGER DEFAULT 1,
-        "ativo" BOOLEAN DEFAULT true,
-        "cursoId" INTEGER NOT NULL,
-        "criadoEm" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP,
-        "atualizadoEm" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY ("cursoId") REFERENCES "cursos"("id") ON DELETE CASCADE
-      );
-    `;
-    console.log('✅ Tabela modulos criada');
-
-    // 4. Criar tabela aulas
-    console.log('🎓 Criando tabela aulas...');
-    await prisma.$executeRaw`
-      CREATE TABLE IF NOT EXISTS "aulas" (
-        "id" SERIAL PRIMARY KEY,
-        "titulo" VARCHAR(255) NOT NULL,
-        "descricao" TEXT,
-        "conteudo" TEXT,
-        "videoUrl" VARCHAR(500),
-        "duracao" INTEGER DEFAULT 15,
-        "ordem" INTEGER DEFAULT 1,
-        "ativo" BOOLEAN DEFAULT true,
-        "moduloId" INTEGER NOT NULL,
-        "criadoEm" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP,
-        "atualizadoEm" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY ("moduloId") REFERENCES "modulos"("id") ON DELETE CASCADE
-      );
-    `;
-    console.log('✅ Tabela aulas criada');
-
-    // 5. Criar tabela videos
-    console.log('📹 Criando tabela videos...');
-    await prisma.$executeRaw`
-      CREATE TABLE IF NOT EXISTS "videos" (
-        "id" SERIAL PRIMARY KEY,
-        "titulo" VARCHAR(255) NOT NULL,
-        "materia" VARCHAR(255) NOT NULL,
-        "categoria" VARCHAR(255) NOT NULL,
-        "url" VARCHAR(500) NOT NULL,
-        "descricao" TEXT,
-        "duracao" INTEGER NOT NULL,
-        "criadoEm" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP,
-        "atualizadoEm" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP
-      );
-    `;
-    console.log('✅ Tabela videos criada');
-
-    // 6. Criar tabela desafios
-    console.log('🎯 Criando tabela desafios...');
-    await prisma.$executeRaw`
-      CREATE TABLE IF NOT EXISTS "desafios" (
-        "id" SERIAL PRIMARY KEY,
-        "titulo" VARCHAR(255) NOT NULL,
-        "descricao" TEXT,
-        "materia" VARCHAR(255) NOT NULL,
-        "nivel" VARCHAR(255) NOT NULL,
-        "pontuacao" INTEGER DEFAULT 20,
-        "duracao" INTEGER DEFAULT 15,
-        "status" VARCHAR(255) DEFAULT 'ativo',
-        "maxTentativas" INTEGER DEFAULT 1,
-        "dataInicio" TIMESTAMP(3),
-        "dataFim" TIMESTAMP(3),
-        "criadoEm" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP,
-        "atualizadoEm" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP
-      );
-    `;
-    console.log('✅ Tabela desafios criada');
-
-    // 7. Criar tabela perguntas_desafio
-    console.log('❓ Criando tabela perguntas_desafio...');
-    await prisma.$executeRaw`
-      CREATE TABLE IF NOT EXISTS "perguntas_desafio" (
-        "id" SERIAL PRIMARY KEY,
-        "pergunta" TEXT NOT NULL,
-        "alternativaA" TEXT NOT NULL,
-        "alternativaB" TEXT NOT NULL,
-        "alternativaC" TEXT NOT NULL,
-        "alternativaD" TEXT NOT NULL,
-        "correta" INTEGER NOT NULL,
-        "explicacao" TEXT,
-        "ordem" INTEGER DEFAULT 1,
-        "ativo" BOOLEAN DEFAULT true,
-        "desafioId" INTEGER NOT NULL,
-        "criadoEm" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP,
-        "atualizadoEm" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY ("desafioId") REFERENCES "desafios"("id") ON DELETE CASCADE
-      );
-    `;
-    console.log('✅ Tabela perguntas_desafio criada');
-
-    // 8. Criar tabela historico_desafios
-    console.log('📊 Criando tabela historico_desafios...');
-    await prisma.$executeRaw`
-      CREATE TABLE IF NOT EXISTS "historico_desafios" (
-        "id" SERIAL PRIMARY KEY,
-        "pontuacaoGanha" INTEGER NOT NULL,
-        "acertos" INTEGER NOT NULL,
-        "totalPerguntas" INTEGER NOT NULL,
-        "porcentagemAcerto" FLOAT NOT NULL,
-        "dataConclusao" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP,
-        "usuarioId" INTEGER NOT NULL,
-        "desafioId" INTEGER NOT NULL,
-        "criadoEm" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY ("usuarioId") REFERENCES "Usuario"("id") ON DELETE CASCADE,
-        FOREIGN KEY ("desafioId") REFERENCES "desafios"("id") ON DELETE CASCADE
-      );
-    `;
-    console.log('✅ Tabela historico_desafios criada');
-
-    console.log('\n🎉 Configuração do banco de dados concluída com sucesso!');
-    console.log('📊 Tabelas criadas:');
-    console.log('  👥 Usuario');
-    console.log('  📚 cursos');
-    console.log('  📦 modulos');
-    console.log('  🎓 aulas');
-    console.log('  📹 videos');
-    console.log('  🎯 desafios');
-    console.log('  ❓ perguntas_desafio');
-    console.log('  📊 historico_desafios');
-
-  } catch (error) {
-    console.error('❌ Erro ao configurar banco de dados:', error);
-    throw error;
-  }
-}
 
 async function testDatabaseConnection() {
   try {
@@ -313,22 +172,19 @@ async function testDatabaseConnection() {
 
 async function initializeDatabase() {
   let retries = 5;
+  let connected = false;
   
-  while (retries > 0) {
+  while (retries > 0 && !connected) {
     try {
       console.log(`🔄 Tentando conectar ao banco de dados... (${retries} tentativas restantes)`);
       
       // Testar conexão básica
       await prisma.$queryRaw`SELECT 1`;
       console.log('✅ Conectado ao banco de dados com sucesso!');
-      
-      // Configurar as tabelas
-      await setupDatabase();
-      
-      return true;
+      connected = true;
       
     } catch (error) {
-      console.error(`❌ Falha na conexão ou configuração do banco:`, error.message);
+      console.error(`❌ Falha na conexão com o banco:`, error.message);
       retries -= 1;
       
       if (retries === 0) {
@@ -340,6 +196,8 @@ async function initializeDatabase() {
       await new Promise(resolve => setTimeout(resolve, 5000));
     }
   }
+  
+  return connected;
 }
 
 // ========== ROTAS BÁSICAS ========== //
@@ -349,7 +207,7 @@ app.get('/', (req, res) => {
     message: '🚀 API Coliseum Backend - Online',
     status: 'operational',
     timestamp: new Date().toISOString(),
-    version: '1.0.0',
+    version: '2.0.0',
     database: 'connected'
   });
 });
@@ -368,6 +226,8 @@ app.get('/api/health', async (req, res) => {
     res.json({ 
       status: 'online',
       database: dbStatus ? 'connected' : 'disconnected',
+      uptime: process.uptime(),
+      memory: process.memoryUsage(),
       totalUsuarios,
       totalVideos,
       totalCursos,
@@ -378,36 +238,31 @@ app.get('/api/health', async (req, res) => {
     res.status(503).json({
       status: 'error',
       database: 'disconnected',
-      error: error.message
+      error: error.message,
+      uptime: process.uptime()
     });
   }
 });
 
-// Rota para forçar configuração do banco (apenas desenvolvimento)
-app.post('/api/setup-database', async (req, res) => {
+// Rota de teste de banco simplificada
+app.get('/api/test-db', async (req, res) => {
   try {
-    if (process.env.NODE_ENV === 'production') {
-      return res.status(403).json({
-        error: 'Esta rota só está disponível em ambiente de desenvolvimento'
-      });
-    }
-
-    await setupDatabase();
+    const result = await prisma.$queryRaw`SELECT 1 as test`;
     res.json({
       success: true,
-      message: 'Banco de dados configurado com sucesso!'
+      message: 'Conexão com banco de dados estável',
+      result
     });
   } catch (error) {
-    console.error('❌ Erro ao configurar banco:', error);
-    res.status(500).json({
-      error: 'Erro ao configurar banco de dados',
+    res.status(503).json({
+      success: false,
+      error: 'Falha na conexão com banco',
       details: error.message
     });
   }
 });
 
 // ========== SISTEMA DE USUÁRIOS ========== //
-// [Todas as rotas de usuários permanecem as mesmas...]
 
 // ✅ GET TODOS OS USUÁRIOS
 app.get('/api/usuarios', async (req, res) => {
@@ -1836,10 +1691,34 @@ async function startServer() {
             console.log(`🌐 URL: http://localhost:${PORT}`);
             console.log(`🌐 Production: https://coliseum-api.onrender.com`);
             console.log(`\n✨ API Coliseum totalmente operacional!`);
+            console.log(`⏰ Iniciado em: ${new Date().toISOString()}`);
         });
         
+        // Configurações para evitar timeout de conexão
         server.keepAliveTimeout = 120000;
         server.headersTimeout = 120000;
+        
+        // Manter conexão ativa periodicamente
+        const keepAliveInterval = setInterval(async () => {
+          try {
+            await prisma.$queryRaw`SELECT 1`;
+            console.log('🔄 Keep-alive: Conexão com banco mantida');
+          } catch (error) {
+            console.warn('⚠️ Keep-alive falhou, tentando reconectar...');
+            try {
+              await prisma.$disconnect();
+              await prisma.$connect();
+              console.log('✅ Conexão restabelecida via keep-alive');
+            } catch (reconnectError) {
+              console.error('❌ Falha ao reconectar no keep-alive:', reconnectError.message);
+            }
+          }
+        }, 30000); // A cada 30 segundos
+        
+        // Limpar intervalo no shutdown
+        server.on('close', () => {
+          clearInterval(keepAliveInterval);
+        });
         
         return server;
         
