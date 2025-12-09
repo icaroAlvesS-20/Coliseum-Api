@@ -1634,6 +1634,232 @@ app.delete('/api/videos/:id', async (req, res) => {
   }
 });
 
+app.get('/api/chat/mensagens', async (req, res) => {
+  try {
+    console.log('💬 Buscando mensagens do chat...');
+    
+    const { page = 1, limit = 50 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    
+    const mensagens = await prisma.mensagemChat.findMany({
+      include: {
+        usuario: {
+          select: {
+            id: true,
+            nome: true,
+            ra: true,
+            serie: true,
+            curso: true
+          }
+        }
+      },
+      orderBy: { timestamp: 'desc' },
+      take: parseInt(limit),
+      skip: skip
+    });
+
+    const totalMensagens = await prisma.mensagemChat.count();
+    
+    console.log(`✅ ${mensagens.length} mensagens carregadas`);
+    
+    res.json({
+      success: true,
+      mensagens: mensagens.reverse(),
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total: totalMensagens,
+        totalPages: Math.ceil(totalMensagens / parseInt(limit))
+      }
+    });
+  } catch (error) {
+    handleError(res, error, 'Erro ao carregar mensagens do chat');
+  }
+});
+
+app.get('/api/chat/mensagens/recentes', async (req, res) => {
+  try {
+    console.log('💬 Buscando mensagens recentes do chat...');
+    
+    const mensagens = await prisma.mensagemChat.findMany({
+      include: {
+        usuario: {
+          select: {
+            id: true,
+            nome: true,
+            ra: true,
+            serie: true,
+            curso: true,
+            pontuacao: true
+          }
+        }
+      },
+      orderBy: { timestamp: 'desc' },
+      take: 100
+    });
+
+    console.log(`✅ ${mensagens.length} mensagens recentes carregadas`);
+    
+    res.json({
+      success: true,
+      mensagens: mensagens.reverse() 
+    });
+  } catch (error) {
+    handleError(res, error, 'Erro ao carregar mensagens recentes');
+  }
+});
+
+app.post('/api/chat/mensagens', async (req, res) => {
+  try {
+    console.log('📝 Recebendo nova mensagem...');
+    
+    const { usuarioId, conteudo, tipo = 'texto' } = req.body;
+
+    if (!usuarioId || !conteudo || conteudo.trim() === '') {
+      return res.status(400).json({
+        error: 'Dados incompletos',
+        details: 'Usuário e conteúdo da mensagem são obrigatórios'
+      });
+    }
+
+    const usuario = await prisma.usuario.findUnique({
+      where: { id: parseInt(usuarioId) },
+      select: { id: true, nome: true, status: true }
+    });
+
+    if (!usuario) {
+      return res.status(404).json({
+        error: 'Usuário não encontrado',
+        details: 'O usuário não existe no sistema'
+      });
+    }
+
+    if (usuario.status !== 'ativo') {
+      return res.status(403).json({
+        error: 'Usuário inativo',
+        details: 'Usuário não pode enviar mensagens'
+      });
+    }
+
+    if (conteudo.trim().length > 1000) {
+      return res.status(400).json({
+        error: 'Mensagem muito longa',
+        details: 'A mensagem não pode ter mais de 1000 caracteres'
+      });
+    }
+
+    console.log(`💬 Usuário ${usuario.nome} enviando mensagem...`);
+
+    const novaMensagem = await prisma.mensagemChat.create({
+      data: {
+        usuarioId: parseInt(usuarioId),
+        conteudo: conteudo.trim(),
+        tipo: tipo,
+        timestamp: new Date()
+      },
+      include: {
+        usuario: {
+          select: {
+            id: true,
+            nome: true,
+            ra: true,
+            serie: true,
+            curso: true,
+            pontuacao: true
+          }
+        }
+      }
+    });
+
+    console.log(`✅ Mensagem enviada por ${usuario.nome}: "${conteudo.substring(0, 30)}..."`);
+
+    res.status(201).json({
+      success: true,
+      message: 'Mensagem enviada com sucesso!',
+      mensagem: novaMensagem
+    });
+
+  } catch (error) {
+    handleError(res, error, 'Erro ao enviar mensagem');
+  }
+});
+
+app.delete('/api/chat/mensagens/:id', async (req, res) => {
+  try {
+    const mensagemId = validateId(req.params.id);
+    if (!mensagemId) {
+      return res.status(400).json({ error: 'ID da mensagem inválido' });
+    }
+
+    const { usuarioId, isAdmin = false } = req.body;
+
+    const mensagem = await prisma.mensagemChat.findUnique({
+      where: { id: mensagemId },
+      include: { usuario: true }
+    });
+
+    if (!mensagem) {
+      return res.status(404).json({ error: 'Mensagem não encontrada' });
+    }
+
+    if (!isAdmin && mensagem.usuarioId !== parseInt(usuarioId)) {
+      return res.status(403).json({
+        error: 'Não autorizado',
+        details: 'Você só pode excluir suas próprias mensagens'
+      });
+    }
+
+    await prisma.mensagemChat.delete({
+      where: { id: mensagemId }
+    });
+
+    console.log(`🗑️ Mensagem excluída: ${mensagemId}`);
+
+    res.json({
+      success: true,
+      message: 'Mensagem excluída com sucesso!'
+    });
+
+  } catch (error) {
+    handleError(res, error, 'Erro ao excluir mensagem');
+  }
+});
+
+app.get('/api/chat/estatisticas', async (req, res) => {
+  try {
+    const [totalMensagens, usuariosAtivos, ultimaMensagem] = await Promise.all([
+      prisma.mensagemChat.count(),
+      prisma.usuario.count({ where: { status: 'ativo' } }),
+      prisma.mensagemChat.findFirst({
+        orderBy: { timestamp: 'desc' },
+        include: {
+          usuario: {
+            select: {
+              nome: true,
+              ra: true
+            }
+          }
+        }
+      })
+    ]);
+
+    res.json({
+      success: true,
+      estatisticas: {
+        totalMensagens,
+        usuariosAtivos,
+        ultimaMensagem: ultimaMensagem ? {
+          usuario: ultimaMensagem.usuario.nome,
+          conteudo: ultimaMensagem.conteudo.substring(0, 50) + '...',
+          timestamp: ultimaMensagem.timestamp
+        } : null
+      }
+    });
+  } catch (error) {
+    handleError(res, error, 'Erro ao carregar estatísticas do chat');
+  }
+});
+
 // ========== MANUSEIO DE ERROS GLOBAL ========== //
 
 app.use((error, req, res, next) => {
@@ -1745,3 +1971,4 @@ process.on('SIGTERM', async () => {
 
 // Inicia o servidor
 startServer();
+
