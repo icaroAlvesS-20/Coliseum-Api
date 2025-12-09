@@ -158,8 +158,21 @@ async function setupDatabase() {
                 FOREIGN KEY ("desafioId") REFERENCES "desafios"("id") ON DELETE CASCADE
             );
         `;
-        console.log('✅ Tabela historico_desafios criada');
-
+          console.log('✅ Tabela historico_desafios criada');
+        
+        console.log('💬 Criando tabela mensagens_chat...');
+        await prisma.$executeRaw`
+            CREATE TABLE IF NOT EXISTS "mensagens_chat" (
+                "id" SERIAL PRIMARY KEY,
+                "usuarioId" INTEGER NOT NULL,
+                "conteudo" TEXT NOT NULL,
+                "tipo" VARCHAR(255) DEFAULT 'texto',
+                "timestamp" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY ("usuarioId") REFERENCES "Usuario"("id") ON DELETE CASCADE
+            );
+        `;
+        console.log('✅ Tabela mensagens_chat criada');
+        
         console.log('\n🎉 Configuração do banco de dados concluída com sucesso!');
         console.log('📊 Tabelas criadas:');
         console.log('  👥 Usuario');
