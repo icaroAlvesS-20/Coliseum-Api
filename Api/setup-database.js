@@ -158,8 +158,9 @@ async function setupDatabase() {
                 FOREIGN KEY ("desafioId") REFERENCES "desafios"("id") ON DELETE CASCADE
             );
         `;
-          console.log('✅ Tabela historico_desafios criada');
-        
+        console.log('✅ Tabela historico_desafios criada');
+
+        // 9. Criar tabela mensagens_chat
         console.log('💬 Criando tabela mensagens_chat...');
         await prisma.$executeRaw`
             CREATE TABLE IF NOT EXISTS "mensagens_chat" (
@@ -173,6 +174,13 @@ async function setupDatabase() {
         `;
         console.log('✅ Tabela mensagens_chat criada');
         
+        // 10. Criar índice para melhor performance no chat
+        console.log('⚡ Criando índices para otimização...');
+        await prisma.$executeRaw`
+            CREATE INDEX IF NOT EXISTS idx_mensagens_chat_timestamp ON "mensagens_chat"("timestamp" DESC);
+        `;
+        console.log('✅ Índices criados');
+
         console.log('\n🎉 Configuração do banco de dados concluída com sucesso!');
         console.log('📊 Tabelas criadas:');
         console.log('  👥 Usuario');
@@ -183,6 +191,7 @@ async function setupDatabase() {
         console.log('  🎯 desafios');
         console.log('  ❓ perguntas_desafio');
         console.log('  📊 historico_desafios');
+        console.log('  💬 mensagens_chat');
 
     } catch (error) {
         console.error('❌ Erro ao configurar banco de dados:', error);
