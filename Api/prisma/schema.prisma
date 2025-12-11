@@ -170,3 +170,31 @@ model MensagemChat {
   
   @@map("mensagens_chat")
 }
+model Amizade {
+  id          Int      @id @default(autoincrement())
+  usuarioId   Int
+  amigoId     Int
+  status      String   @default("pendente") // "pendente", "aceito", "bloqueado"
+  criadoEm    DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+  
+  usuario     Usuario  @relation("amizades_usuario", fields: [usuarioId], references: [id], onDelete: Cascade)
+  amigo       Usuario  @relation("amizades_amigo", fields: [amigoId], references: [id], onDelete: Cascade)
+  
+  @@unique([usuarioId, amigoId])
+  @@map("amizades")
+}
+
+model NotificacaoAmizade {
+  id          Int      @id @default(autoincrement())
+  tipo        String   // "solicitacao_amizade", "aceito_amizade"
+  usuarioId   Int
+  remetenteId Int
+  lida        Boolean  @default(false)
+  criadoEm    DateTime @default(now())
+  
+  usuario     Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  remetente   Usuario  @relation(fields: [remetenteId], references: [id], onDelete: Cascade)
+  
+  @@map("notificacoes_amizade")
+}
