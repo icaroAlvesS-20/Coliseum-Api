@@ -87,7 +87,6 @@ app.use(async (req, res, next) => {
   console.log(`\n=== NOVA REQUISIÇÃO ===`);
   console.log(`[${new Date().toLocaleTimeString()}] ${req.method} ${req.path}`);
   console.log('📍 Origin:', req.headers.origin);
-  console.log('📦 Body:', req.body);
   
   try {
     // Verificar conexão com banco antes de cada requisição
@@ -208,7 +207,8 @@ app.get('/', (req, res) => {
     status: 'operational',
     timestamp: new Date().toISOString(),
     version: '2.0.0',
-    database: 'connected'
+    database: 'connected',
+    features: ['usuarios', 'videos', 'cursos', 'desafios', 'chat', 'amigos']
   });
 });
 
@@ -216,11 +216,13 @@ app.get('/api/health', async (req, res) => {
   try {
     const dbStatus = await testDatabaseConnection();
     
-    const [totalUsuarios, totalVideos, totalCursos, totalDesafios] = await Promise.all([
+    const [totalUsuarios, totalVideos, totalCursos, totalDesafios, totalAmizades, totalMensagensChat] = await Promise.all([
       prisma.usuario.count().catch(() => 0),
       prisma.video.count().catch(() => 0),
       prisma.curso.count().catch(() => 0),
-      prisma.desafio.count().catch(() => 0)
+      prisma.desafio.count().catch(() => 0),
+      prisma.amizade.count().catch(() => 0),
+      prisma.mensagemChat.count().catch(() => 0)
     ]);
 
     res.json({ 
@@ -232,6 +234,8 @@ app.get('/api/health', async (req, res) => {
       totalVideos,
       totalCursos,
       totalDesafios,
+      totalAmizades,
+      totalMensagensChat,
       timestamp: new Date().toISOString()
     });
   } catch (error) {
@@ -591,6 +595,645 @@ app.delete('/api/usuarios/:id', async (req, res) => {
     });
   } catch (error) {
     handleError(res, error, 'Erro ao excluir usuário');
+  }
+});
+
+// ========== SISTEMA DE AMIGOS ========== //
+
+// ✅ GET LISTA DE AMIGOS DO USUÁRIO
+app.get('/api/amigos/usuarios/:usuarioId/amigos', async (req, res) => {
+  try {
+    const usuarioId = validateId(req.params.usuarioId);
+    if (!usuarioId) {
+      return res.status(400).json({ error: 'ID do usuário inválido' });
+    }
+
+    console.log(`👥 Buscando amigos do usuário ID: ${usuarioId}`);
+
+    // Buscar amizades onde o usuário é o solicitante ou o amigo
+    const amizades = await prisma.amizade.findMany({
+      where: {
+        OR: [
+          { usuarioId: usuarioId },
+          { amigoId: usuarioId }
+        ],
+        status: 'aceito'
+      },
+      include: {
+        usuario: {
+          select: {
+            id: true,
+            nome: true,
+            ra: true,
+            serie: true,
+            curso: true,
+            pontuacao: true,
+            status: true
+          }
+        },
+        amigo: {
+          select: {
+            id: true,
+            nome: true,
+            ra: true,
+            serie: true,
+            curso: true,
+            pontuacao: true,
+            status: true
+          }
+        }
+      }
+    });
+
+    // Transformar os dados para retornar apenas os amigos
+    const amigos = amizades.map(amizade => {
+      if (amizade.usuarioId === usuarioId) {
+        return {
+          id: amizade.id,
+          amigo: amizade.amigo,
+          dataAdicao: amizade.criadoEm,
+          status: amizade.status
+        };
+      } else {
+        return {
+          id: amizade.id,
+          amigo: amizade.usuario,
+          dataAdicao: amizade.criadoEm,
+          status: amizade.status
+        };
+      }
+    });
+
+    console.log(`✅ ${amigos.length} amigos encontrados para o usuário ${usuarioId}`);
+
+    res.json({
+      success: true,
+      amigos: amigos
+    });
+
+  } catch (error) {
+    handleError(res, error, 'Erro ao buscar amigos');
+  }
+});
+
+// ✅ GET SOLICITAÇÕES DE AMIZADE PENDENTES
+app.get('/api/amigos/usuarios/:usuarioId/solicitacoes', async (req, res) => {
+  try {
+    const usuarioId = validateId(req.params.usuarioId);
+    if (!usuarioId) {
+      return res.status(400).json({ error: 'ID do usuário inválido' });
+    }
+
+    console.log(`📩 Buscando solicitações pendentes para usuário ID: ${usuarioId}`);
+
+    const solicitacoes = await prisma.amizade.findMany({
+      where: {
+        amigoId: usuarioId,
+        status: 'pendente'
+      },
+      include: {
+        usuario: {
+          select: {
+            id: true,
+            nome: true,
+            ra: true,
+            serie: true,
+            curso: true,
+            pontuacao: true
+          }
+        }
+      },
+      orderBy: { criadoEm: 'desc' }
+    });
+
+    console.log(`✅ ${solicitacoes.length} solicitações pendentes encontradas`);
+
+    res.json({
+      success: true,
+      solicitacoes: solicitacoes
+    });
+
+  } catch (error) {
+    handleError(res, error, 'Erro ao buscar solicitações de amizade');
+  }
+});
+
+// ✅ POST ENVIAR SOLICITAÇÃO DE AMIZADE
+app.post('/api/amigos/usuarios/:usuarioId/solicitar/:amigoId', async (req, res) => {
+  try {
+    const usuarioId = validateId(req.params.usuarioId);
+    const amigoId = validateId(req.params.amigoId);
+    
+    if (!usuarioId || !amigoId) {
+      return res.status(400).json({ error: 'IDs de usuário inválidos' });
+    }
+
+    if (usuarioId === amigoId) {
+      return res.status(400).json({ error: 'Não é possível adicionar a si mesmo como amigo' });
+    }
+
+    console.log(`📤 Usuário ${usuarioId} solicitando amizade com ${amigoId}`);
+
+    // Verificar se os usuários existem
+    const [usuario, amigo] = await Promise.all([
+      prisma.usuario.findUnique({ where: { id: usuarioId } }),
+      prisma.usuario.findUnique({ where: { id: amigoId } })
+    ]);
+
+    if (!usuario) {
+      return res.status(404).json({ error: 'Usuário não encontrado' });
+    }
+
+    if (!amigo) {
+      return res.status(404).json({ error: 'Amigo não encontrado' });
+    }
+
+    // Verificar se já existe uma amizade
+    const amizadeExistente = await prisma.amizade.findFirst({
+      where: {
+        OR: [
+          { usuarioId: usuarioId, amigoId: amigoId },
+          { usuarioId: amigoId, amigoId: usuarioId }
+        ]
+      }
+    });
+
+    if (amizadeExistente) {
+      let mensagem = '';
+      if (amizadeExistente.status === 'pendente') {
+        if (amizadeExistente.usuarioId === usuarioId) {
+          mensagem = 'Já existe uma solicitação pendente para este amigo';
+        } else {
+          mensagem = 'Este usuário já enviou uma solicitação para você. Verifique suas notificações.';
+        }
+      } else if (amizadeExistente.status === 'aceito') {
+        mensagem = 'Vocês já são amigos';
+      } else if (amizadeExistente.status === 'bloqueado') {
+        mensagem = 'Esta amizade foi bloqueada';
+      }
+      
+      return res.status(409).json({
+        error: 'Amizade já existe',
+        details: mensagem,
+        status: amizadeExistente.status
+      });
+    }
+
+    // Criar solicitação de amizade
+    const novaAmizade = await prisma.amizade.create({
+      data: {
+        usuarioId: usuarioId,
+        amigoId: amigoId,
+        status: 'pendente'
+      },
+      include: {
+        usuario: {
+          select: {
+            id: true,
+            nome: true,
+            ra: true
+          }
+        },
+        amigo: {
+          select: {
+            id: true,
+            nome: true,
+            ra: true
+          }
+        }
+      }
+    });
+
+    // Criar notificação para o amigo
+    await prisma.notificacaoAmizade.create({
+      data: {
+        tipo: 'solicitacao_amizade',
+        usuarioId: amigoId,
+        remetenteId: usuarioId,
+        lida: false
+      }
+    });
+
+    console.log(`✅ Solicitação de amizade enviada: ${usuario.nome} -> ${amigo.nome}`);
+
+    res.status(201).json({
+      success: true,
+      message: 'Solicitação de amizade enviada com sucesso!',
+      amizade: novaAmizade
+    });
+
+  } catch (error) {
+    handleError(res, error, 'Erro ao enviar solicitação de amizade');
+  }
+});
+
+// ✅ PUT ACEITAR SOLICITAÇÃO DE AMIZADE
+app.put('/api/amigos/usuarios/:usuarioId/aceitar/:amizadeId', async (req, res) => {
+  try {
+    const usuarioId = validateId(req.params.usuarioId);
+    const amizadeId = validateId(req.params.amizadeId);
+    
+    if (!usuarioId || !amizadeId) {
+      return res.status(400).json({ error: 'IDs inválidos' });
+    }
+
+    console.log(`✅ Usuário ${usuarioId} aceitando amizade ${amizadeId}`);
+
+    const amizade = await prisma.amizade.findUnique({
+      where: { id: amizadeId },
+      include: {
+        usuario: true,
+        amigo: true
+      }
+    });
+
+    if (!amizade) {
+      return res.status(404).json({ error: 'Solicitação de amizade não encontrada' });
+    }
+
+    if (amizade.amigoId !== usuarioId) {
+      return res.status(403).json({ 
+        error: 'Não autorizado',
+        details: 'Você só pode aceitar solicitações enviadas para você'
+      });
+    }
+
+    if (amizade.status !== 'pendente') {
+      return res.status(400).json({ 
+        error: 'Solicitação inválida',
+        details: `Esta solicitação já está ${amizade.status}`
+      });
+    }
+
+    // Atualizar status da amizade
+    const amizadeAtualizada = await prisma.amizade.update({
+      where: { id: amizadeId },
+      data: {
+        status: 'aceito',
+        atualizadoEm: new Date()
+      },
+      include: {
+        usuario: {
+          select: {
+            id: true,
+            nome: true,
+            ra: true
+          }
+        },
+        amigo: {
+          select: {
+            id: true,
+            nome: true,
+            ra: true
+          }
+        }
+      }
+    });
+
+    // Criar notificação para o remetente
+    await prisma.notificacaoAmizade.create({
+      data: {
+        tipo: 'aceito_amizade',
+        usuarioId: amizade.usuarioId,
+        remetenteId: usuarioId,
+        lida: false
+      }
+    });
+
+    console.log(`✅ Amizade aceita: ${amizade.usuario.nome} e ${amizade.amigo.nome} agora são amigos`);
+
+    res.json({
+      success: true,
+      message: 'Solicitação de amizade aceita com sucesso!',
+      amizade: amizadeAtualizada
+    });
+
+  } catch (error) {
+    handleError(res, error, 'Erro ao aceitar solicitação de amizade');
+  }
+});
+
+// ✅ PUT RECUSAR/REJEITAR SOLICITAÇÃO DE AMIZADE
+app.put('/api/amigos/usuarios/:usuarioId/rejeitar/:amizadeId', async (req, res) => {
+  try {
+    const usuarioId = validateId(req.params.usuarioId);
+    const amizadeId = validateId(req.params.amizadeId);
+    
+    if (!usuarioId || !amizadeId) {
+      return res.status(400).json({ error: 'IDs inválidos' });
+    }
+
+    console.log(`❌ Usuário ${usuarioId} rejeitando amizade ${amizadeId}`);
+
+    const amizade = await prisma.amizade.findUnique({
+      where: { id: amizadeId }
+    });
+
+    if (!amizade) {
+      return res.status(404).json({ error: 'Solicitação de amizade não encontrada' });
+    }
+
+    if (amizade.amigoId !== usuarioId) {
+      return res.status(403).json({ 
+        error: 'Não autorizado',
+        details: 'Você só pode rejeitar solicitações enviadas para você'
+      });
+    }
+
+    if (amizade.status !== 'pendente') {
+      return res.status(400).json({ 
+        error: 'Solicitação inválida',
+        details: `Esta solicitação já está ${amizade.status}`
+      });
+    }
+
+    // Remover a amizade (apagar o registro)
+    await prisma.amizade.delete({
+      where: { id: amizadeId }
+    });
+
+    console.log(`✅ Solicitação de amizade rejeitada e removida`);
+
+    res.json({
+      success: true,
+      message: 'Solicitação de amizade rejeitada com sucesso!'
+    });
+
+  } catch (error) {
+    handleError(res, error, 'Erro ao rejeitar solicitação de amizade');
+  }
+});
+
+// ✅ DELETE REMOVER AMIGO
+app.delete('/api/amigos/usuarios/:usuarioId/amigos/:amigoId', async (req, res) => {
+  try {
+    const usuarioId = validateId(req.params.usuarioId);
+    const amigoId = validateId(req.params.amigoId);
+    
+    if (!usuarioId || !amigoId) {
+      return res.status(400).json({ error: 'IDs de usuário inválidos' });
+    }
+
+    console.log(`🗑️ Usuário ${usuarioId} removendo amigo ${amigoId}`);
+
+    // Encontrar a amizade (em qualquer direção)
+    const amizade = await prisma.amizade.findFirst({
+      where: {
+        OR: [
+          { usuarioId: usuarioId, amigoId: amigoId },
+          { usuarioId: amigoId, amigoId: usuarioId }
+        ],
+        status: 'aceito'
+      }
+    });
+
+    if (!amizade) {
+      return res.status(404).json({ error: 'Amizade não encontrada' });
+    }
+
+    // Remover a amizade
+    await prisma.amizade.delete({
+      where: { id: amizade.id }
+    });
+
+    console.log(`✅ Amizade removida entre usuários ${usuarioId} e ${amigoId}`);
+
+    res.json({
+      success: true,
+      message: 'Amigo removido com sucesso!'
+    });
+
+  } catch (error) {
+    handleError(res, error, 'Erro ao remover amigo');
+  }
+});
+
+// ✅ GET BUSCAR USUÁRIOS PARA ADICIONAR COMO AMIGOS
+app.get('/api/amigos/usuarios/buscar', async (req, res) => {
+  try {
+    const { query, usuarioId } = req.query;
+    
+    if (!query || query.trim().length < 2) {
+      return res.status(400).json({ 
+        error: 'Termo de busca muito curto',
+        details: 'Digite pelo menos 2 caracteres para buscar'
+      });
+    }
+
+    const currentUserId = validateId(usuarioId);
+    
+    console.log(`🔍 Buscando usuários com: "${query}"`);
+
+    // Buscar usuários por nome ou RA
+    const usuarios = await prisma.usuario.findMany({
+      where: {
+        AND: [
+          {
+            OR: [
+              { nome: { contains: query, mode: 'insensitive' } },
+              { ra: { contains: query, mode: 'insensitive' } }
+            ]
+          },
+          { status: 'ativo' },
+          currentUserId ? { id: { not: currentUserId } } : {}
+        ]
+      },
+      select: {
+        id: true,
+        nome: true,
+        ra: true,
+        serie: true,
+        curso: true,
+        pontuacao: true,
+        desafiosCompletados: true
+      },
+      take: 20,
+      orderBy: { nome: 'asc' }
+    });
+
+    // Se houver um usuário logado, verificar status de amizade
+    if (currentUserId) {
+      const usuariosComStatus = await Promise.all(
+        usuarios.map(async (usuario) => {
+          const amizade = await prisma.amizade.findFirst({
+            where: {
+              OR: [
+                { usuarioId: currentUserId, amigoId: usuario.id },
+                { usuarioId: usuario.id, amigoId: currentUserId }
+              ]
+            }
+          });
+
+          return {
+            ...usuario,
+            statusAmizade: amizade ? amizade.status : null,
+            amizadeId: amizade ? amizade.id : null
+          };
+        })
+      );
+
+      res.json({
+        success: true,
+        resultados: usuariosComStatus
+      });
+    } else {
+      res.json({
+        success: true,
+        resultados: usuarios
+      });
+    }
+
+  } catch (error) {
+    handleError(res, error, 'Erro ao buscar usuários');
+  }
+});
+
+// ✅ GET NOTIFICAÇÕES DE AMIZADE
+app.get('/api/amigos/usuarios/:usuarioId/notificacoes', async (req, res) => {
+  try {
+    const usuarioId = validateId(req.params.usuarioId);
+    if (!usuarioId) {
+      return res.status(400).json({ error: 'ID do usuário inválido' });
+    }
+
+    console.log(`🔔 Buscando notificações do usuário ID: ${usuarioId}`);
+
+    const notificacoes = await prisma.notificacaoAmizade.findMany({
+      where: {
+        usuarioId: usuarioId,
+        lida: false
+      },
+      include: {
+        remetente: {
+          select: {
+            id: true,
+            nome: true,
+            ra: true,
+            serie: true,
+            curso: true
+          }
+        }
+      },
+      orderBy: { criadoEm: 'desc' },
+      take: 50
+    });
+
+    console.log(`✅ ${notificacoes.length} notificações encontradas`);
+
+    res.json({
+      success: true,
+      notificacoes: notificacoes
+    });
+
+  } catch (error) {
+    handleError(res, error, 'Erro ao buscar notificações');
+  }
+});
+
+// ✅ PUT MARCAR NOTIFICAÇÃO COMO LIDA
+app.put('/api/amigos/notificacoes/:notificacaoId/ler', async (req, res) => {
+  try {
+    const notificacaoId = validateId(req.params.notificacaoId);
+    if (!notificacaoId) {
+      return res.status(400).json({ error: 'ID da notificação inválido' });
+    }
+
+    console.log(`📌 Marcando notificação ${notificacaoId} como lida`);
+
+    const notificacao = await prisma.notificacaoAmizade.findUnique({
+      where: { id: notificacaoId }
+    });
+
+    if (!notificacao) {
+      return res.status(404).json({ error: 'Notificação não encontrada' });
+    }
+
+    await prisma.notificacaoAmizade.update({
+      where: { id: notificacaoId },
+      data: { lida: true }
+    });
+
+    console.log(`✅ Notificação ${notificacaoId} marcada como lida`);
+
+    res.json({
+      success: true,
+      message: 'Notificação marcada como lida'
+    });
+
+  } catch (error) {
+    handleError(res, error, 'Erro ao marcar notificação como lida');
+  }
+});
+
+// ✅ GET AMIGOS ONLINE (SIMULADO)
+app.get('/api/amigos/usuarios/:usuarioId/amigos/online', async (req, res) => {
+  try {
+    const usuarioId = validateId(req.params.usuarioId);
+    if (!usuarioId) {
+      return res.status(400).json({ error: 'ID do usuário inválido' });
+    }
+
+    console.log(`💚 Buscando amigos online do usuário ID: ${usuarioId}`);
+
+    // Buscar amizades do usuário
+    const amizades = await prisma.amizade.findMany({
+      where: {
+        OR: [
+          { usuarioId: usuarioId },
+          { amigoId: usuarioId }
+        ],
+        status: 'aceito'
+      },
+      include: {
+        usuario: {
+          select: {
+            id: true,
+            nome: true,
+            ra: true,
+            curso: true,
+            pontuacao: true
+          }
+        },
+        amigo: {
+          select: {
+            id: true,
+            nome: true,
+            ra: true,
+            curso: true,
+            pontuacao: true
+          }
+        }
+      }
+    });
+
+    // Transformar dados para retornar os amigos
+    const amigos = amizades.map(amizade => {
+      const isUsuario = amizade.usuarioId === usuarioId;
+      const amigo = isUsuario ? amizade.amigo : amizade.usuario;
+      
+      return {
+        id: amigo.id,
+        nome: amigo.nome,
+        ra: amigo.ra,
+        curso: amigo.curso,
+        pontuacao: amigo.pontuacao,
+        online: Math.random() > 0.3, // 70% de chance de estar online (simulação)
+        ultimaAtividade: new Date(Date.now() - Math.random() * 3600000).toISOString()
+      };
+    });
+
+    const amigosOnline = amigos.filter(a => a.online);
+    
+    console.log(`✅ ${amigosOnline.length} de ${amigos.length} amigos online`);
+
+    res.json({
+      success: true,
+      amigosOnline: amigosOnline,
+      totalAmigos: amigos.length
+    });
+
+  } catch (error) {
+    handleError(res, error, 'Erro ao buscar amigos online');
   }
 });
 
@@ -1634,6 +2277,8 @@ app.delete('/api/videos/:id', async (req, res) => {
   }
 });
 
+// ========== SISTEMA DE CHAT ========== //
+
 app.get('/api/chat/mensagens', async (req, res) => {
   try {
     console.log('💬 Buscando mensagens do chat...');
@@ -1918,6 +2563,13 @@ async function startServer() {
             console.log(`🌐 Production: https://coliseum-api.onrender.com`);
             console.log(`\n✨ API Coliseum totalmente operacional!`);
             console.log(`⏰ Iniciado em: ${new Date().toISOString()}`);
+            console.log(`\n🎯 Funcionalidades disponíveis:`);
+            console.log(`   👥 Sistema de Usuários`);
+            console.log(`   🤝 Sistema de Amigos`);
+            console.log(`   🎯 Sistema de Desafios`);
+            console.log(`   📚 Sistema de Cursos`);
+            console.log(`   📹 Sistema de Vídeos`);
+            console.log(`   💬 Sistema de Chat`);
         });
         
         // Configurações para evitar timeout de conexão
@@ -1971,4 +2623,3 @@ process.on('SIGTERM', async () => {
 
 // Inicia o servidor
 startServer();
-
