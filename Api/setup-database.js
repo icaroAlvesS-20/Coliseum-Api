@@ -180,7 +180,45 @@ async function setupDatabase() {
             CREATE INDEX IF NOT EXISTS idx_mensagens_chat_timestamp ON "mensagens_chat"("timestamp" DESC);
         `;
         console.log('✅ Índices criados');
+console.log('🤝 Criando tabela amizades...');
+await prisma.$executeRaw`
+    CREATE TABLE IF NOT EXISTS "amizades" (
+        "id" SERIAL PRIMARY KEY,
+        "usuarioId" INTEGER NOT NULL,
+        "amigoId" INTEGER NOT NULL,
+        "status" VARCHAR(255) DEFAULT 'pendente',
+        "criadoEm" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP,
+        "atualizadoEm" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE("usuarioId", "amigoId"),
+        FOREIGN KEY ("usuarioId") REFERENCES "Usuario"("id") ON DELETE CASCADE,
+        FOREIGN KEY ("amigoId") REFERENCES "Usuario"("id") ON DELETE CASCADE
+    );
+`;
+console.log('✅ Tabela amizades criada');
 
+console.log('🔔 Criando tabela notificacoes_amizade...');
+await prisma.$executeRaw`
+    CREATE TABLE IF NOT EXISTS "notificacoes_amizade" (
+        "id" SERIAL PRIMARY KEY,
+        "tipo" VARCHAR(255) NOT NULL,
+        "usuarioId" INTEGER NOT NULL,
+        "remetenteId" INTEGER NOT NULL,
+        "lida" BOOLEAN DEFAULT false,
+        "criadoEm" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY ("usuarioId") REFERENCES "Usuario"("id") ON DELETE CASCADE,
+        FOREIGN KEY ("remetenteId") REFERENCES "Usuario"("id") ON DELETE CASCADE
+    );
+`;
+console.log('✅ Tabela notificacoes_amizade criada');
+
+await prisma.$executeRaw`
+    CREATE INDEX IF NOT EXISTS idx_amizades_usuario_status ON "amizades"("usuarioId", "status");
+    CREATE INDEX IF NOT EXISTS idx_amizades_amigo_status ON "amizades"("amigoId", "status");
+    CREATE INDEX IF NOT EXISTS idx_notificacoes_usuario_lida ON "notificacoes_amizade"("usuarioId", "lida");
+`;
+console.log('✅ Índices para amizades criados');
+
+        
         console.log('\n🎉 Configuração do banco de dados concluída com sucesso!');
         console.log('📊 Tabelas criadas:');
         console.log('  👥 Usuario');
