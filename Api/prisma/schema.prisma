@@ -21,7 +21,13 @@ model Usuario {
   atualizadoEm        DateTime           @updatedAt
 
   historicoDesafios   HistoricoDesafio[]
-  mensagensChat       MensagemChat[]     // ADICIONE ESTA LINHA
+  mensagensChat       MensagemChat[]
+  
+  // Relações de amizade
+  amizadesComoUsuario  Amizade[]           @relation("amizades_usuario")
+  amizadesComoAmigo    Amizade[]           @relation("amizades_amigo")
+  notificacoesRecebidas NotificacaoAmizade[] @relation("notificacoes_usuario")
+  notificacoesEnviadas  NotificacaoAmizade[] @relation("notificacoes_remetente")
   
   @@map("Usuario")
 }
@@ -170,6 +176,9 @@ model MensagemChat {
   
   @@map("mensagens_chat")
 }
+
+// ========== MODELO DE AMIGOS ========== //
+
 model Amizade {
   id          Int      @id @default(autoincrement())
   usuarioId   Int
@@ -193,8 +202,8 @@ model NotificacaoAmizade {
   lida        Boolean  @default(false)
   criadoEm    DateTime @default(now())
   
-  usuario     Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
-  remetente   Usuario  @relation(fields: [remetenteId], references: [id], onDelete: Cascade)
+  usuario     Usuario  @relation("notificacoes_usuario", fields: [usuarioId], references: [id], onDelete: Cascade)
+  remetente   Usuario  @relation("notificacoes_remetente", fields: [remetenteId], references: [id], onDelete: Cascade)
   
   @@map("notificacoes_amizade")
 }
