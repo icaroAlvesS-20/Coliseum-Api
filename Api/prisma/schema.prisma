@@ -207,3 +207,32 @@ model NotificacaoAmizade {
   
   @@map("notificacoes_amizade")
 }
+model ChatPrivado {
+  id        Int      @id @default(autoincrement())
+  usuarioId Int
+  amigoId   Int
+  mensagens MensagemPrivada[]
+  criadoEm  DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+  
+  usuario   Usuario  @relation("chats_usuario", fields: [usuarioId], references: [id], onDelete: Cascade)
+  amigo     Usuario  @relation("chats_amigo", fields: [amigoId], references: [id], onDelete: Cascade)
+  
+  @@unique([usuarioId, amigoId])
+  @@map("chats_privados")
+}
+
+model MensagemPrivada {
+  id        Int      @id @default(autoincrement())
+  chatId    Int
+  remetenteId Int
+  conteudo  Text
+  lida      Boolean  @default(false)
+  enviadoEm DateTime @default(now())
+  
+  chat      ChatPrivado @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  remetente Usuario     @relation(fields: [remetenteId], references: [id], onDelete: Cascade)
+  
+  @@map("mensagens_privadas")
+}
+*/
