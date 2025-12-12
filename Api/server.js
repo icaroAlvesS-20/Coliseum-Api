@@ -827,143 +827,203 @@ app.post('/api/amigos/usuarios/:usuarioId/solicitar/:amigoId', async (req, res) 
   }
 });
 
-// ✅ PUT ACEITAR SOLICITAÇÃO DE AMIZADE
 app.put('/api/amigos/usuarios/:usuarioId/aceitar/:amizadeId', async (req, res) => {
-  try {
-    const usuarioId = validateId(req.params.usuarioId);
-    const amizadeId = validateId(req.params.amizadeId);
-    
-    if (!usuarioId || !amizadeId) {
-      return res.status(400).json({ error: 'IDs inválidos' });
-    }
-
-    console.log(`✅ Usuário ${usuarioId} aceitando amizade ${amizadeId}`);
-
-    const amizade = await prisma.amizade.findUnique({
-      where: { id: amizadeId },
-      include: {
-        usuario: true,
-        amigo: true
-      }
-    });
-
-    if (!amizade) {
-      return res.status(404).json({ error: 'Solicitação de amizade não encontrada' });
-    }
-
-    if (amizade.amigoId !== usuarioId) {
-      return res.status(403).json({ 
-        error: 'Não autorizado',
-        details: 'Você só pode aceitar solicitações enviadas para você'
-      });
-    }
-
-    if (amizade.status !== 'pendente') {
-      return res.status(400).json({ 
-        error: 'Solicitação inválida',
-        details: `Esta solicitação já está ${amizade.status}`
-      });
-    }
-
-    // Atualizar status da amizade
-    const amizadeAtualizada = await prisma.amizade.update({
-      where: { id: amizadeId },
-      data: {
-        status: 'aceito',
-        atualizadoEm: new Date()
-      },
-      include: {
-        usuario: {
-          select: {
-            id: true,
-            nome: true,
-            ra: true
-          }
-        },
-        amigo: {
-          select: {
-            id: true,
-            nome: true,
-            ra: true
-          }
+    try {
+        const usuarioId = validateId(req.params.usuarioId);
+        const amizadeId = validateId(req.params.amizadeId);
+        
+        if (!usuarioId || !amizadeId) {
+            return res.status(400).json({ 
+                success: false,
+                error: 'IDs inválidos' 
+            });
         }
-      }
-    });
 
-    // Criar notificação para o remetente
-    await prisma.notificacaoAmizade.create({
-      data: {
-        tipo: 'aceito_amizade',
-        usuarioId: amizade.usuarioId,
-        remetenteId: usuarioId,
-        lida: false
-      }
-    });
+        console.log(`✅ ACEITAR: Usuário ${usuarioId}, Amizade ${amizadeId}`);
 
-    console.log(`✅ Amizade aceita: ${amizade.usuario.nome} e ${amizade.amigo.nome} agora são amigos`);
+        // Buscar a amizade
+        const amizade = await prisma.amizade.findUnique({
+            where: { id: amizadeId }
+        });
 
-    res.json({
-      success: true,
-      message: 'Solicitação de amizade aceita com sucesso!',
-      amizade: amizadeAtualizada
-    });
+        if (!amizade) {
+            console.log(`❌ Amizade não encontrada: ${amizadeId}`);
+            return res.status(404).json({ 
+                success: false,
+                error: 'Solicitação não encontrada' 
+            });
+        }
 
-  } catch (error) {
-    handleError(res, error, 'Erro ao aceitar solicitação de amizade');
-  }
+        console.log('📊 Dados da amizade:', amizade);
+
+        // Verificar se o usuário é quem recebeu a solicitação
+        if (amizade.amigoId !== usuarioId) {
+            console.log(`❌ Não autorizado: amigoId=${amizade.amigoId}, usuarioId=${usuarioId}`);
+            return res.status(403).json({ 
+                success: false,
+                error: 'Não autorizado',
+                details: 'Você só pode aceitar solicitações enviadas para você'
+            });
+        }
+
+        // Verificar se já está aceita
+        if (amizade.status === 'aceito') {
+            console.log(`ℹ️ Amizade já aceita: ${amizadeId}`);
+            return res.status(400).json({ 
+                success: false,
+                error: 'Amizade já aceita' 
+            });
+        }
+
+        // Verificar se está pendente
+        if (amizade.status !== 'pendente') {
+            console.log(`❌ Status inválido: ${amizade.status}`);
+            return res.status(400).json({ 
+                success: false,
+                error: 'Status inválido',
+                details: `Esta solicitação está ${amizade.status}`
+            });
+        }
+
+        // ✅ ATUALIZAR STATUS PARA "aceito"
+        const amizadeAtualizada = await prisma.amizade.update({
+            where: { id: amizadeId },
+            data: {
+                status: 'aceito',
+                atualizadoEm: new Date()
+            },
+            include: {
+                usuario: {
+                    select: {
+                        id: true,
+                        nome: true,
+                        ra: true
+                    }
+                },
+                amigo: {
+                    select: {
+                        id: true,
+                        nome: true,
+                        ra: true
+                    }
+                }
+            }
+        });
+
+        console.log(`✅ Amizade aceita: ID=${amizadeId}`);
+
+        // ✅ CRIAR NOTIFICAÇÃO PARA O REMETENTE
+        await prisma.notificacaoAmizade.create({
+            data: {
+                tipo: 'aceito_amizade',
+                usuarioId: amizade.usuarioId, // Remetente original
+                remetenteId: usuarioId, // Quem aceitou
+                lida: false
+            }
+        });
+
+        // ✅ REMOVER NOTIFICAÇÕES DE SOLICITAÇÃO ANTIGAS
+        await prisma.notificacaoAmizade.deleteMany({
+            where: {
+                usuarioId: usuarioId, // Quem recebeu
+                remetenteId: amizade.usuarioId, // Quem enviou
+                tipo: 'solicitacao_amizade'
+            }
+        });
+
+        res.json({
+            success: true,
+            message: 'Solicitação de amizade aceita com sucesso!',
+            amizade: amizadeAtualizada
+        });
+
+    } catch (error) {
+        console.error('❌ Erro ao aceitar amizade:', error);
+        handleError(res, error, 'Erro ao aceitar solicitação de amizade');
+    }
 });
 
-// ✅ PUT RECUSAR/REJEITAR SOLICITAÇÃO DE AMIZADE
+// ✅ PUT REJEITAR SOLICITAÇÃO DE AMIZADE
 app.put('/api/amigos/usuarios/:usuarioId/rejeitar/:amizadeId', async (req, res) => {
-  try {
-    const usuarioId = validateId(req.params.usuarioId);
-    const amizadeId = validateId(req.params.amizadeId);
-    
-    if (!usuarioId || !amizadeId) {
-      return res.status(400).json({ error: 'IDs inválidos' });
+    try {
+        const usuarioId = validateId(req.params.usuarioId);
+        const amizadeId = validateId(req.params.amizadeId);
+        
+        if (!usuarioId || !amizadeId) {
+            return res.status(400).json({ 
+                success: false,
+                error: 'IDs inválidos' 
+            });
+        }
+
+        console.log(`❌ REJEITAR: Usuário ${usuarioId}, Amizade ${amizadeId}`);
+
+        const amizade = await prisma.amizade.findUnique({
+            where: { id: amizadeId }
+        });
+
+        if (!amizade) {
+            return res.status(404).json({ 
+                success: false,
+                error: 'Solicitação não encontrada' 
+            });
+        }
+
+        // Verificar se o usuário é quem recebeu a solicitação
+        if (amizade.amigoId !== usuarioId) {
+            return res.status(403).json({ 
+                success: false,
+                error: 'Não autorizado',
+                details: 'Você só pode rejeitar solicitações enviadas para você'
+            });
+        }
+
+        // Verificar se está pendente
+        if (amizade.status !== 'pendente') {
+            return res.status(400).json({ 
+                success: false,
+                error: 'Status inválido',
+                details: `Esta solicitação está ${amizade.status}`
+            });
+        }
+
+        // ✅ REMOVER A AMIZADE (APAGAR DO BANCO)
+        await prisma.amizade.delete({
+            where: { id: amizadeId }
+        });
+
+        console.log(`✅ Amizade rejeitada e removida: ID=${amizadeId}`);
+
+        // ✅ REMOVER NOTIFICAÇÕES RELACIONADAS
+        await prisma.notificacaoAmizade.deleteMany({
+            where: {
+                OR: [
+                    // Notificação da solicitação para quem recebeu
+                    {
+                        usuarioId: usuarioId,
+                        remetenteId: amizade.usuarioId,
+                        tipo: 'solicitacao_amizade'
+                    },
+                    // Notificações futuras que poderiam ser criadas
+                    {
+                        usuarioId: amizade.usuarioId,
+                        remetenteId: usuarioId,
+                        tipo: 'solicitacao_amizade'
+                    }
+                ]
+            }
+        });
+
+        res.json({
+            success: true,
+            message: 'Solicitação de amizade rejeitada com sucesso!'
+        });
+
+    } catch (error) {
+        console.error('❌ Erro ao rejeitar amizade:', error);
+        handleError(res, error, 'Erro ao rejeitar solicitação de amizade');
     }
-
-    console.log(`❌ Usuário ${usuarioId} rejeitando amizade ${amizadeId}`);
-
-    const amizade = await prisma.amizade.findUnique({
-      where: { id: amizadeId }
-    });
-
-    if (!amizade) {
-      return res.status(404).json({ error: 'Solicitação de amizade não encontrada' });
-    }
-
-    if (amizade.amigoId !== usuarioId) {
-      return res.status(403).json({ 
-        error: 'Não autorizado',
-        details: 'Você só pode rejeitar solicitações enviadas para você'
-      });
-    }
-
-    if (amizade.status !== 'pendente') {
-      return res.status(400).json({ 
-        error: 'Solicitação inválida',
-        details: `Esta solicitação já está ${amizade.status}`
-      });
-    }
-
-    // Remover a amizade (apagar o registro)
-    await prisma.amizade.delete({
-      where: { id: amizadeId }
-    });
-
-    console.log(`✅ Solicitação de amizade rejeitada e removida`);
-
-    res.json({
-      success: true,
-      message: 'Solicitação de amizade rejeitada com sucesso!'
-    });
-
-  } catch (error) {
-    handleError(res, error, 'Erro ao rejeitar solicitação de amizade');
-  }
 });
-
 // ✅ DELETE REMOVER AMIGO
 app.delete('/api/amigos/usuarios/:usuarioId/amigos/:amigoId', async (req, res) => {
   try {
@@ -2623,3 +2683,4 @@ process.on('SIGTERM', async () => {
 
 // Inicia o servidor
 startServer();
+
