@@ -1297,6 +1297,408 @@ app.get('/api/amigos/usuarios/:usuarioId/amigos/online', async (req, res) => {
   }
 });
 
+// ✅ POST - CRIAR/INICIAR CHAT PRIVADO
+app.post('/api/chat/privado/iniciar', async (req, res) => {
+  try {
+    const { usuarioId, amigoId } = req.body;
+    
+    if (!usuarioId || !amigoId) {
+      return res.status(400).json({
+        success: false,
+        error: 'IDs de usuário e amigo são obrigatórios'
+      });
+    }
+    
+    console.log(`💬 Iniciando chat entre ${usuarioId} e ${amigoId}`);
+    
+    // Verificar se já são amigos
+    const amizade = await prisma.amizade.findFirst({
+      where: {
+        OR: [
+          { usuarioId: parseInt(usuarioId), amigoId: parseInt(amigoId), status: 'aceito' },
+          { usuarioId: parseInt(amigoId), amigoId: parseInt(usuarioId), status: 'aceito' }
+        ]
+      }
+    });
+    
+    if (!amizade) {
+      return res.status(403).json({
+        success: false,
+        error: 'Vocês precisam ser amigos para conversar'
+      });
+    }
+    
+    // Verificar se chat já existe
+    let chat = await prisma.chatPrivado.findFirst({
+      where: {
+        OR: [
+          { usuarioId: parseInt(usuarioId), amigoId: parseInt(amigoId) },
+          { usuarioId: parseInt(amigoId), amigoId: parseInt(usuarioId) }
+        ]
+      },
+      include: {
+        usuario: {
+          select: { id: true, nome: true, ra: true }
+        },
+        amigo: {
+          select: { id: true, nome: true, ra: true }
+        },
+        mensagens: {
+          orderBy: { enviadoEm: 'desc' },
+          take: 50,
+          include: {
+            remetente: {
+              select: { id: true, nome: true }
+            }
+          }
+        }
+      }
+    });
+    
+    // Se não existe, criar novo chat
+    if (!chat) {
+      chat = await prisma.chatPrivado.create({
+        data: {
+          usuarioId: parseInt(usuarioId),
+          amigoId: parseInt(amigoId)
+        },
+        include: {
+          usuario: {
+            select: { id: true, nome: true, ra: true }
+          },
+          amigo: {
+            select: { id: true, nome: true, ra: true }
+          },
+          mensagens: true
+        }
+      });
+      
+      console.log(`✅ Novo chat criado: ID=${chat.id}`);
+    } else {
+      console.log(`✅ Chat existente: ID=${chat.id}`);
+    }
+    
+    res.json({
+      success: true,
+      chat: {
+        ...chat,
+        mensagens: chat.mensagens.reverse() // Ordenar do mais antigo para o mais novo
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Erro ao iniciar chat:', error);
+    handleError(res, error, 'Erro ao iniciar chat privado');
+  }
+});
+
+// ✅ GET - OBTER MENSAGENS DO CHAT
+app.get('/api/chat/privado/:chatId/mensagens', async (req, res) => {
+  try {
+    const chatId = validateId(req.params.chatId);
+    const { usuarioId, limite = 100 } = req.query;
+    
+    if (!chatId || !usuarioId) {
+      return res.status(400).json({
+        success: false,
+        error: 'ID do chat e usuário são obrigatórios'
+      });
+    }
+    
+    console.log(`📩 Buscando mensagens do chat ${chatId}`);
+    
+    // Verificar se o usuário tem acesso ao chat
+    const chat = await prisma.chatPrivado.findFirst({
+      where: {
+        id: chatId,
+        OR: [
+          { usuarioId: parseInt(usuarioId) },
+          { amigoId: parseInt(usuarioId) }
+        ]
+      }
+    });
+    
+    if (!chat) {
+      return res.status(403).json({
+        success: false,
+        error: 'Acesso não autorizado a este chat'
+      });
+    }
+    
+    // Buscar mensagens
+    const mensagens = await prisma.mensagemPrivada.findMany({
+      where: { chatId: chatId },
+      include: {
+        remetente: {
+          select: { id: true, nome: true }
+        }
+      },
+      orderBy: { enviadoEm: 'asc' },
+      take: parseInt(limite)
+    });
+    
+    // Marcar mensagens como lidas
+    await prisma.mensagemPrivada.updateMany({
+      where: {
+        chatId: chatId,
+        remetenteId: { not: parseInt(usuarioId) },
+        lida: false
+      },
+      data: { lida: true }
+    });
+    
+    res.json({
+      success: true,
+      mensagens: mensagens
+    });
+    
+  } catch (error) {
+    console.error('❌ Erro ao buscar mensagens:', error);
+    handleError(res, error, 'Erro ao carregar mensagens');
+  }
+});
+
+// ✅ POST - ENVIAR MENSAGEM PRIVADA
+app.post('/api/chat/privado/:chatId/enviar', async (req, res) => {
+  try {
+    const chatId = validateId(req.params.chatId);
+    const { remetenteId, conteudo } = req.body;
+    
+    if (!chatId || !remetenteId || !conteudo || conteudo.trim() === '') {
+      return res.status(400).json({
+        success: false,
+        error: 'Dados incompletos para enviar mensagem'
+      });
+    }
+    
+    console.log(`📤 Enviando mensagem para chat ${chatId}`);
+    
+    // Verificar se o remetente tem acesso ao chat
+    const chat = await prisma.chatPrivado.findFirst({
+      where: {
+        id: chatId,
+        OR: [
+          { usuarioId: parseInt(remetenteId) },
+          { amigoId: parseInt(remetenteId) }
+        ]
+      },
+      include: {
+        usuario: true,
+        amigo: true
+      }
+    });
+    
+    if (!chat) {
+      return res.status(403).json({
+        success: false,
+        error: 'Acesso não autorizado a este chat'
+      });
+    }
+    
+    // Verificar limite de caracteres
+    if (conteudo.length > 1000) {
+      return res.status(400).json({
+        success: false,
+        error: 'Mensagem muito longa (máximo 1000 caracteres)'
+      });
+    }
+    
+    // Criar mensagem
+    const mensagem = await prisma.mensagemPrivada.create({
+      data: {
+        chatId: chatId,
+        remetenteId: parseInt(remetenteId),
+        conteudo: conteudo.trim(),
+        lida: false
+      },
+      include: {
+        remetente: {
+          select: { id: true, nome: true }
+        }
+      }
+    });
+    
+    // Atualizar data do chat
+    await prisma.chatPrivado.update({
+      where: { id: chatId },
+      data: { atualizadoEm: new Date() }
+    });
+    
+    console.log(`✅ Mensagem enviada: ID=${mensagem.id}`);
+    
+    // Determinar quem é o destinatário
+    const destinatarioId = chat.usuarioId === parseInt(remetenteId) 
+      ? chat.amigoId 
+      : chat.usuarioId;
+    
+    // Criar notificação para o destinatário
+    await prisma.notificacaoAmizade.create({
+      data: {
+        tipo: 'nova_mensagem',
+        usuarioId: destinatarioId,
+        remetenteId: parseInt(remetenteId),
+        lida: false
+      }
+    });
+    
+    res.json({
+      success: true,
+      message: 'Mensagem enviada com sucesso!',
+      mensagem: mensagem
+    });
+    
+  } catch (error) {
+    console.error('❌ Erro ao enviar mensagem:', error);
+    handleError(res, error, 'Erro ao enviar mensagem');
+  }
+});
+
+// ✅ GET - LISTAR CHATS DO USUÁRIO
+app.get('/api/chat/privado/usuario/:usuarioId/chats', async (req, res) => {
+  try {
+    const usuarioId = validateId(req.params.usuarioId);
+    
+    if (!usuarioId) {
+      return res.status(400).json({
+        success: false,
+        error: 'ID do usuário é obrigatório'
+      });
+    }
+    
+    console.log(`💬 Buscando chats do usuário ${usuarioId}`);
+    
+    const chats = await prisma.chatPrivado.findMany({
+      where: {
+        OR: [
+          { usuarioId: usuarioId },
+          { amigoId: usuarioId }
+        ]
+      },
+      include: {
+        usuario: {
+          select: { id: true, nome: true, ra: true }
+        },
+        amigo: {
+          select: { id: true, nome: true, ra: true }
+        },
+        mensagens: {
+          orderBy: { enviadoEm: 'desc' },
+          take: 1, // Última mensagem
+          include: {
+            remetente: {
+              select: { id: true, nome: true }
+            }
+          }
+        }
+      },
+      orderBy: { atualizadoEm: 'desc' }
+    });
+    
+    // Formatar resposta
+    const chatsFormatados = chats.map(chat => {
+      const outroUsuario = chat.usuarioId === usuarioId ? chat.amigo : chat.usuario;
+      const ultimaMensagem = chat.mensagens[0] || null;
+      
+      return {
+        id: chat.id,
+        outroUsuario: outroUsuario,
+        ultimaMensagem: ultimaMensagem,
+        naoLidas: 0, // Você pode calcular isso depois
+        atualizadoEm: chat.atualizadoEm
+      };
+    });
+    
+    res.json({
+      success: true,
+      chats: chatsFormatados
+    });
+    
+  } catch (error) {
+    console.error('❌ Erro ao buscar chats:', error);
+    handleError(res, error, 'Erro ao carregar chats');
+  }
+});
+
+// ✅ GET - VERIFICAR NOVAS MENSAGENS
+app.get('/api/chat/privado/usuario/:usuarioId/novas', async (req, res) => {
+  try {
+    const usuarioId = validateId(req.params.usuarioId);
+    
+    if (!usuarioId) {
+      return res.status(400).json({
+        success: false,
+        error: 'ID do usuário é obrigatório'
+      });
+    }
+    
+    // Buscar notificações de novas mensagens
+    const notificacoes = await prisma.notificacaoAmizade.findMany({
+      where: {
+        usuarioId: usuarioId,
+        tipo: 'nova_mensagem',
+        lida: false
+      },
+      include: {
+        remetente: {
+          select: { id: true, nome: true }
+        }
+      },
+      orderBy: { criadoEm: 'desc' }
+    });
+    
+    // Buscar mensagens não lidas em chats
+    const mensagensNaoLidas = await prisma.$queryRaw`
+      SELECT COUNT(*) as total
+      FROM mensagens_privadas mp
+      INNER JOIN chats_privados cp ON mp.chatId = cp.id
+      WHERE (cp.usuarioId = ${usuarioId} OR cp.amigoId = ${usuarioId})
+      AND mp.remetenteId != ${usuarioId}
+      AND mp.lida = false
+    `;
+    
+    res.json({
+      success: true,
+      notificacoes: notificacoes,
+      totalNaoLidas: mensagensNaoLidas[0]?.total || 0
+    });
+    
+  } catch (error) {
+    console.error('❌ Erro ao verificar novas mensagens:', error);
+    handleError(res, error, 'Erro ao verificar novas mensagens');
+  }
+});
+
+// ✅ PUT - MARCAR NOTIFICAÇÕES COMO LIDAS
+app.put('/api/chat/notificacoes/:usuarioId/ler', async (req, res) => {
+  try {
+    const usuarioId = validateId(req.params.usuarioId);
+    
+    if (!usuarioId) {
+      return res.status(400).json({
+        success: false,
+        error: 'ID do usuário é obrigatório'
+      });
+    }
+    
+    await prisma.notificacaoAmizade.updateMany({
+      where: {
+        usuarioId: usuarioId,
+        tipo: 'nova_mensagem',
+        lida: false
+      },
+      data: { lida: true }
+    });
+    
+    res.json({
+      success: true,
+      message: 'Notificações marcadas como lidas'
+    });
+    
+  } catch (error) {
+    console.error('❌ Erro ao marcar notificações:', error);
+    handleError(res, error, 'Erro ao marcar notificações');
+  }
+});
 // ========== SISTEMA DE DESAFIOS (CRUD) ========== //
 
 // ✅ GET TODOS OS DESAFIOS (ADMIN)
@@ -2683,4 +3085,5 @@ process.on('SIGTERM', async () => {
 
 // Inicia o servidor
 startServer();
+
 
