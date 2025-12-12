@@ -164,7 +164,6 @@ model Aula {
   @@map("aulas")
 }
 
-// ========== MODELO DE CHAT ========== //
 
 model MensagemChat {
   id        Int      @id @default(autoincrement())
@@ -177,7 +176,6 @@ model MensagemChat {
   @@map("mensagens_chat")
 }
 
-// ========== MODELO DE AMIGOS ========== //
 
 model Amizade {
   id          Int      @id @default(autoincrement())
@@ -207,32 +205,33 @@ model NotificacaoAmizade {
   
   @@map("notificacoes_amizade")
 }
-model ChatPrivado {
-  id        Int      @id @default(autoincrement())
-  usuarioId Int
-  amigoId   Int
-  mensagens MensagemPrivada[]
-  criadoEm  DateTime @default(now())
-  atualizadoEm DateTime @updatedAt
+
+model Conversa {
+  id          Int         @id @default(autoincrement())
+  usuario1Id  Int
+  usuario2Id  Int
+  criadoEm    DateTime    @default(now())
+  atualizadoEm DateTime   @updatedAt
   
-  usuario   Usuario  @relation("chats_usuario", fields: [usuarioId], references: [id], onDelete: Cascade)
-  amigo     Usuario  @relation("chats_amigo", fields: [amigoId], references: [id], onDelete: Cascade)
+  usuario1    Usuario     @relation("conversas_usuario1", fields: [usuario1Id], references: [id], onDelete: Cascade)
+  usuario2    Usuario     @relation("conversas_usuario2", fields: [usuario2Id], references: [id], onDelete: Cascade)
+  mensagens   MensagemPrivada[]
   
-  @@unique([usuarioId, amigoId])
-  @@map("chats_privados")
+  @@unique([usuario1Id, usuario2Id])
+  @@map("conversas")
 }
 
 model MensagemPrivada {
-  id        Int      @id @default(autoincrement())
-  chatId    Int
+  id          Int         @id @default(autoincrement())
+  conversaId  Int
   remetenteId Int
-  conteudo  Text
-  lida      Boolean  @default(false)
-  enviadoEm DateTime @default(now())
+  conteudo    String
+  lida        Boolean     @default(false)
+  criadoEm    DateTime    @default(now())
   
-  chat      ChatPrivado @relation(fields: [chatId], references: [id], onDelete: Cascade)
-  remetente Usuario     @relation(fields: [remetenteId], references: [id], onDelete: Cascade)
+  conversa    Conversa    @relation(fields: [conversaId], references: [id], onDelete: Cascade)
+  remetente   Usuario     @relation(fields: [remetenteId], references: [id], onDelete: Cascade)
   
   @@map("mensagens_privadas")
 }
-*/
+
