@@ -22,6 +22,9 @@ model Usuario {
 
   historicoDesafios   HistoricoDesafio[]
   mensagensChat       MensagemChat[]
+  conversasComoUsuario1  Conversa[]           @relation("conversas_usuario1")
+  conversasComoUsuario2  Conversa[]           @relation("conversas_usuario2")
+  mensagensEnviadas      MensagemPrivada[]
   
   // Relações de amizade
   amizadesComoUsuario  Amizade[]           @relation("amizades_usuario")
@@ -234,4 +237,5 @@ model MensagemPrivada {
   
   @@map("mensagens_privadas")
 }
+
 
