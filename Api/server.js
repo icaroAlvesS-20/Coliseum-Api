@@ -1650,6 +1650,428 @@ app.get('/api/chat/usuarios/:usuarioId/nao-lidas', async (req, res) => {
         handleError(res, error, 'Erro ao contar mensagens não lidas');
     }
 });
+// ========== ROTAS ADICIONAIS DO CHAT ========== //
+
+// ✅ GET CHAT - Rota principal
+app.get('/api/chat', async (req, res) => {
+  try {
+    console.log('💬 Acessando endpoint principal do chat...');
+    
+    const mensagens = await prisma.mensagemChat.findMany({
+      include: {
+        usuario: {
+          select: {
+            id: true,
+            nome: true,
+            ra: true,
+            serie: true,
+            curso: true,
+            pontuacao: true
+          }
+        }
+      },
+      orderBy: { timestamp: 'desc' },
+      take: 50
+    });
+
+    console.log(`✅ ${mensagens.length} mensagens carregadas do chat principal`);
+    
+    res.json({
+      success: true,
+      mensagens: mensagens.reverse(),
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    handleError(res, error, 'Erro ao carregar chat principal');
+  }
+});
+
+// ✅ GET CONVERSAS - Rota para listar conversas do usuário
+app.get('/api/conversations', async (req, res) => {
+  try {
+    const { usuarioId } = req.query;
+    
+    if (!usuarioId) {
+      return res.status(400).json({
+        error: 'ID do usuário não fornecido',
+        details: 'O parâmetro usuarioId é obrigatório'
+      });
+    }
+
+    const usuarioIdValidado = validateId(usuarioId);
+    if (!usuarioIdValidado) {
+      return res.status(400).json({ error: 'ID do usuário inválido' });
+    }
+
+    console.log(`💬 Buscando conversas do usuário ID: ${usuarioIdValidado}`);
+
+    const conversas = await prisma.conversa.findMany({
+      where: {
+        OR: [
+          { usuario1Id: usuarioIdValidado },
+          { usuario2Id: usuarioIdValidado }
+        ]
+      },
+      include: {
+        usuario1: {
+          select: {
+            id: true,
+            nome: true,
+            ra: true
+          }
+        },
+        usuario2: {
+          select: {
+            id: true,
+            nome: true,
+            ra: true
+          }
+        },
+        mensagens: {
+          take: 1,
+          orderBy: { criadoEm: 'desc' },
+          select: {
+            conteudo: true,
+            criadoEm: true,
+            remetenteId: true
+          }
+        }
+      },
+      orderBy: { atualizadoEm: 'desc' }
+    });
+
+    // Formatar resposta
+    const conversasFormatadas = conversas.map(conversa => {
+      const outroUsuario = conversa.usuario1Id === usuarioIdValidado 
+        ? conversa.usuario2 
+        : conversa.usuario1;
+      
+      const ultimaMensagem = conversa.mensagens[0];
+      
+      // Contar mensagens não lidas
+      const naoLidasPromise = prisma.mensagemPrivada.count({
+        where: {
+          conversaId: conversa.id,
+          remetenteId: { not: usuarioIdValidado },
+          lida: false
+        }
+      });
+
+      return {
+        id: conversa.id,
+        amigo: outroUsuario,
+        ultimaMensagem: ultimaMensagem ? {
+          conteudo: ultimaMensagem.conteudo,
+          criadoEm: ultimaMensagem.criadoEm,
+          remetenteId: ultimaMensagem.remetenteId
+        } : null,
+        naoLidas: 0, // Será atualizado abaixo
+        atualizadoEm: conversa.atualizadoEm
+      };
+    });
+
+    // Aguardar todas as contagens de mensagens não lidas
+    const conversasComContagem = await Promise.all(
+      conversasFormatadas.map(async (conversa) => {
+        const naoLidas = await prisma.mensagemPrivada.count({
+          where: {
+            conversaId: conversa.id,
+            remetenteId: { not: usuarioIdValidado },
+            lida: false
+          }
+        });
+        return {
+          ...conversa,
+          naoLidas
+        };
+      })
+    );
+
+    console.log(`✅ ${conversasComContagem.length} conversas encontradas`);
+
+    res.json({
+      success: true,
+      conversas: conversasComContagem
+    });
+
+  } catch (error) {
+    handleError(res, error, 'Erro ao buscar conversas');
+  }
+});
+
+// ✅ GET /chat - Rota simplificada (sem /api/)
+app.get('/chat', async (req, res) => {
+  try {
+    console.log('💬 Acessando rota simplificada /chat...');
+    
+    const mensagens = await prisma.mensagemChat.findMany({
+      include: {
+        usuario: {
+          select: {
+            id: true,
+            nome: true,
+            ra: true,
+            serie: true,
+            curso: true
+          }
+        }
+      },
+      orderBy: { timestamp: 'desc' },
+      take: 20
+    });
+
+    console.log(`✅ ${mensagens.length} mensagens carregadas da rota /chat`);
+    
+    res.json({
+      success: true,
+      message: 'Endpoint de chat funcionando',
+      mensagens: mensagens.reverse(),
+      total: mensagens.length
+    });
+  } catch (error) {
+    handleError(res, error, 'Erro ao acessar rota /chat');
+  }
+});
+
+// ========== TESTE DE CONEXÃO DO CHAT ========== //
+app.get('/api/chat/test', async (req, res) => {
+  try {
+    const totalMensagens = await prisma.mensagemChat.count();
+    const totalUsuarios = await prisma.usuario.count();
+    const totalConversas = await prisma.conversa.count();
+    const totalMensagensPrivadas = await prisma.mensagemPrivada.count();
+
+    res.json({
+      success: true,
+      message: 'Sistema de chat operacional',
+      status: {
+        chatPublico: 'online',
+        chatPrivado: 'online',
+        mensagensPublicas: totalMensagens,
+        mensagensPrivadas: totalMensagensPrivadas,
+        usuarios: totalUsuarios,
+        conversas: totalConversas,
+        timestamp: new Date().toISOString()
+      }
+    });
+  } catch (error) {
+    handleError(res, error, 'Erro no teste do chat');
+  }
+});
+
+// ✅ POST CRIAR CONVERSA (alternativa)
+app.post('/api/chat/conversas/nova', async (req, res) => {
+  try {
+    const { usuarioId, amigoId } = req.body;
+
+    if (!usuarioId || !amigoId) {
+      return res.status(400).json({
+        error: 'IDs necessários',
+        details: 'Forneça usuarioId e amigoId'
+      });
+    }
+
+    const usuarioIdValidado = validateId(usuarioId);
+    const amigoIdValidado = validateId(amigoId);
+
+    if (!usuarioIdValidado || !amigoIdValidado) {
+      return res.status(400).json({ error: 'IDs inválidos' });
+    }
+
+    if (usuarioIdValidado === amigoIdValidado) {
+      return res.status(400).json({
+        error: 'IDs iguais',
+        details: 'Não é possível criar conversa consigo mesmo'
+      });
+    }
+
+    console.log(`💬 Criando nova conversa entre ${usuarioIdValidado} e ${amigoIdValidado}`);
+
+    // Verificar se já existe conversa
+    const conversaExistente = await prisma.conversa.findFirst({
+      where: {
+        OR: [
+          { usuario1Id: usuarioIdValidado, usuario2Id: amigoIdValidado },
+          { usuario1Id: amigoIdValidado, usuario2Id: usuarioIdValidado }
+        ]
+      },
+      include: {
+        usuario1: {
+          select: {
+            id: true,
+            nome: true,
+            ra: true
+          }
+        },
+        usuario2: {
+          select: {
+            id: true,
+            nome: true,
+            ra: true
+          }
+        }
+      }
+    });
+
+    if (conversaExistente) {
+      const amigo = conversaExistente.usuario1Id === usuarioIdValidado 
+        ? conversaExistente.usuario2 
+        : conversaExistente.usuario1;
+
+      console.log(`✅ Conversa já existe: ID=${conversaExistente.id}`);
+
+      return res.json({
+        success: true,
+        message: 'Conversa já existente',
+        conversa: {
+          id: conversaExistente.id,
+          amigo: amigo,
+          criadoEm: conversaExistente.criadoEm,
+          atualizadoEm: conversaExistente.atualizadoEm
+        }
+      });
+    }
+
+    // Verificar se são amigos
+    const saoAmigos = await prisma.amizade.findFirst({
+      where: {
+        OR: [
+          { usuarioId: usuarioIdValidado, amigoId: amigoIdValidado, status: 'aceito' },
+          { usuarioId: amigoIdValidado, amigoId: usuarioIdValidado, status: 'aceito' }
+        ]
+      }
+    });
+
+    if (!saoAmigos) {
+      return res.status(403).json({
+        success: false,
+        error: 'Não são amigos',
+        details: 'Vocês precisam ser amigos para conversar'
+      });
+    }
+
+    // Criar nova conversa
+    const novaConversa = await prisma.conversa.create({
+      data: {
+        usuario1Id: Math.min(usuarioIdValidado, amigoIdValidado),
+        usuario2Id: Math.max(usuarioIdValidado, amigoIdValidado)
+      },
+      include: {
+        usuario1: {
+          select: {
+            id: true,
+            nome: true,
+            ra: true
+          }
+        },
+        usuario2: {
+          select: {
+            id: true,
+            nome: true,
+            ra: true
+          }
+        }
+      }
+    });
+
+    const amigo = novaConversa.usuario1Id === usuarioIdValidado 
+      ? novaConversa.usuario2 
+      : novaConversa.usuario1;
+
+    console.log(`✅ Nova conversa criada: ID=${novaConversa.id}`);
+
+    res.status(201).json({
+      success: true,
+      message: 'Conversa criada com sucesso!',
+      conversa: {
+        id: novaConversa.id,
+        amigo: amigo,
+        criadoEm: novaConversa.criadoEm,
+        atualizadoEm: novaConversa.atualizadoEm
+      }
+    });
+
+  } catch (error) {
+    handleError(res, error, 'Erro ao criar conversa');
+  }
+});
+
+// ✅ GET MENSAGENS DE UMA CONVERSA ESPECÍFICA
+app.get('/api/chat/conversations/:conversaId/messages', async (req, res) => {
+  try {
+    const conversaId = validateId(req.params.conversaId);
+    const { usuarioId } = req.query;
+
+    if (!conversaId || !usuarioId) {
+      return res.status(400).json({ 
+        error: 'Parâmetros necessários',
+        details: 'Forneça conversaId e usuarioId'
+      });
+    }
+
+    const usuarioIdValidado = validateId(usuarioId);
+    if (!usuarioIdValidado) {
+      return res.status(400).json({ error: 'ID do usuário inválido' });
+    }
+
+    console.log(`📨 Buscando mensagens da conversa ${conversaId} para usuário ${usuarioIdValidado}`);
+
+    // Verificar acesso
+    const conversa = await prisma.conversa.findFirst({
+      where: {
+        id: conversaId,
+        OR: [
+          { usuario1Id: usuarioIdValidado },
+          { usuario2Id: usuarioIdValidado }
+        ]
+      }
+    });
+
+    if (!conversa) {
+      return res.status(403).json({
+        success: false,
+        error: 'Acesso negado',
+        details: 'Você não tem acesso a esta conversa'
+      });
+    }
+
+    const mensagens = await prisma.mensagemPrivada.findMany({
+      where: { conversaId: conversaId },
+      include: {
+        remetente: {
+          select: {
+            id: true,
+            nome: true,
+            ra: true
+          }
+        }
+      },
+      orderBy: { criadoEm: 'asc' },
+      take: 200
+    });
+
+    // Marcar mensagens como lidas
+    await prisma.mensagemPrivada.updateMany({
+      where: {
+        conversaId: conversaId,
+        remetenteId: { not: usuarioIdValidado },
+        lida: false
+      },
+      data: { lida: true }
+    });
+
+    console.log(`✅ ${mensagens.length} mensagens carregadas da conversa ${conversaId}`);
+
+    res.json({
+      success: true,
+      mensagens: mensagens,
+      total: mensagens.length
+    });
+
+  } catch (error) {
+    handleError(res, error, 'Erro ao buscar mensagens da conversa');
+  }
+});
 // ========== SISTEMA DE DESAFIOS (CRUD) ========== //
 
 // ✅ GET TODOS OS DESAFIOS (ADMIN)
@@ -3036,6 +3458,7 @@ process.on('SIGTERM', async () => {
 
 // Inicia o servidor
 startServer();
+
 
 
 
