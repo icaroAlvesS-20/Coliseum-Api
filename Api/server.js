@@ -297,6 +297,50 @@ app.get('/api/usuarios', async (req, res) => {
   }
 });
 
+// ✅ GET USUÁRIO POR ID
+app.get('/api/usuarios/:id', async (req, res) => {
+  try {
+    const userId = validateId(req.params.id);
+    if (!userId) {
+      return res.status(400).json({ error: 'ID do usuário inválido' });
+    }
+
+    console.log(`👤 Buscando usuário ID: ${userId}`);
+
+    const usuario = await prisma.usuario.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        nome: true,
+        ra: true,
+        serie: true,
+        curso: true,
+        pontuacao: true,
+        desafiosCompletados: true,
+        status: true,
+        criadoEm: true,
+        atualizadoEm: true
+      }
+    });
+
+    if (!usuario) {
+      return res.status(404).json({ 
+        success: false,
+        error: 'Usuário não encontrado'
+      });
+    }
+
+    console.log(`✅ Usuário encontrado: ${usuario.nome}`);
+    
+    res.json({
+      success: true,
+      usuario: usuario
+    });
+  } catch (error) {
+    handleError(res, error, 'Erro ao buscar usuário');
+  }
+});
+
 // ✅ POST CRIAR USUÁRIO
 app.post('/api/usuarios', async (req, res) => {
     try {
@@ -1833,86 +1877,153 @@ app.get('/chat', async (req, res) => {
     handleError(res, error, 'Erro ao acessar rota /chat');
   }
 });
-// ========== ROTAS ADICIONAIS PARA CORRIGIR ERROS 404 ========== //
 
-// ✅ GET USUÁRIO POR ID
-app.get('/api/usuarios/:id', async (req, res) => {
+// ========== ROTAS ADICIONAIS PARA CHAT ========== //
+
+// ✅ GET VERIFICAR/CRIAR CONVERSA ENTRE USUÁRIOS
+app.get('/api/chat/conversas/usuario/:usuarioId/amigo/:amigoId', async (req, res) => {
   try {
-    const userId = validateId(req.params.id);
-    if (!userId) {
-      return res.status(400).json({ error: 'ID do usuário inválido' });
+    const usuarioId = validateId(req.params.usuarioId);
+    const amigoId = validateId(req.params.amigoId);
+    
+    if (!usuarioId || !amigoId) {
+      return res.status(400).json({ error: 'IDs de usuário inválidos' });
     }
 
-    console.log(`👤 Buscando usuário ID: ${userId}`);
+    if (usuarioId === amigoId) {
+      return res.status(400).json({ 
+        error: 'IDs iguais',
+        details: 'Não é possível criar conversa consigo mesmo'
+      });
+    }
 
-    const usuario = await prisma.usuario.findUnique({
-      where: { id: userId },
-      select: {
-        id: true,
-        nome: true,
-        ra: true,
-        serie: true,
-        curso: true,
-        pontuacao: true,
-        desafiosCompletados: true,
-        status: true,
-        criadoEm: true,
-        atualizadoEm: true
+    console.log(`💬 Buscando conversa entre usuário ${usuarioId} e amigo ${amigoId}`);
+
+    // Verificar se são amigos
+    const saoAmigos = await prisma.amizade.findFirst({
+      where: {
+        OR: [
+          { usuarioId: usuarioId, amigoId: amigoId, status: 'aceito' },
+          { usuarioId: amigoId, amigoId: usuarioId, status: 'aceito' }
+        ]
       }
     });
 
-    if (!usuario) {
-      return res.status(404).json({ error: 'Usuário não encontrado' });
+    if (!saoAmigos) {
+      return res.status(403).json({ 
+        success: false,
+        error: 'Não são amigos',
+        details: 'Vocês precisam ser amigos para conversar'
+      });
     }
 
-    console.log(`✅ Usuário encontrado: ${usuario.nome}`);
-    
-    res.json(usuario);
-  } catch (error) {
-    handleError(res, error, 'Erro ao buscar usuário');
-  }
-});
-
-// ✅ GET AMIGO POR ID (para conversas)
-app.get('/api/amigos/usuarios/:id', async (req, res) => {
-  try {
-    const userId = validateId(req.params.id);
-    if (!userId) {
-      return res.status(400).json({ error: 'ID do usuário inválido' });
-    }
-
-    console.log(`👤 Buscando amigo ID: ${userId}`);
-
-    const usuario = await prisma.usuario.findUnique({
-      where: { id: userId },
-      select: {
-        id: true,
-        nome: true,
-        ra: true,
-        serie: true,
-        curso: true,
-        pontuacao: true,
-        status: true
+    // Buscar conversa existente
+    let conversa = await prisma.conversa.findFirst({
+      where: {
+        OR: [
+          { usuario1Id: usuarioId, usuario2Id: amigoId },
+          { usuario1Id: amigoId, usuario2Id: usuarioId }
+        ]
+      },
+      include: {
+        usuario1: {
+          select: {
+            id: true,
+            nome: true,
+            ra: true,
+            curso: true,
+            serie: true
+          }
+        },
+        usuario2: {
+          select: {
+            id: true,
+            nome: true,
+            ra: true,
+            curso: true,
+            serie: true
+          }
+        },
+        mensagens: {
+          take: 1,
+          orderBy: { criadoEm: 'desc' },
+          select: {
+            conteudo: true,
+            criadoEm: true,
+            remetenteId: true
+          }
+        }
       }
     });
 
-    if (!usuario) {
-      return res.status(404).json({ error: 'Usuário não encontrado' });
+    // Se não existir, criar nova
+    if (!conversa) {
+      console.log(`📝 Criando nova conversa entre ${usuarioId} e ${amigoId}...`);
+      
+      conversa = await prisma.conversa.create({
+        data: {
+          usuario1Id: Math.min(usuarioId, amigoId),
+          usuario2Id: Math.max(usuarioId, amigoId)
+        },
+        include: {
+          usuario1: {
+            select: {
+              id: true,
+              nome: true,
+              ra: true,
+              curso: true,
+              serie: true
+            }
+          },
+          usuario2: {
+            select: {
+              id: true,
+              nome: true,
+              ra: true,
+              curso: true,
+              serie: true
+            }
+          }
+        }
+      });
+
+      console.log(`✅ Nova conversa criada: ID=${conversa.id}`);
+    } else {
+      console.log(`✅ Conversa encontrada: ID=${conversa.id}`);
     }
 
-    console.log(`✅ Amigo encontrado: ${usuario.nome}`);
-    
+    // Determinar quem é o amigo na conversa
+    const amigo = conversa.usuario1Id === usuarioId 
+      ? conversa.usuario2 
+      : conversa.usuario1;
+
+    // Contar mensagens não lidas
+    const mensagensNaoLidas = await prisma.mensagemPrivada.count({
+      where: {
+        conversaId: conversa.id,
+        remetenteId: { not: usuarioId },
+        lida: false
+      }
+    });
+
     res.json({
       success: true,
-      usuario: usuario
+      conversa: {
+        id: conversa.id,
+        amigo: amigo,
+        criadoEm: conversa.criadoEm,
+        atualizadoEm: conversa.atualizadoEm,
+        mensagensNaoLidas: mensagensNaoLidas
+      }
     });
+
   } catch (error) {
-    handleError(res, error, 'Erro ao buscar amigo');
+    handleError(res, error, 'Erro ao buscar/criar conversa');
   }
 });
 
-// ✅ PUT MARCAR MENSAGENS COMO LIDAS
-app.put('/api/chat/conversas/:conversaId/ler', async (req, res) => {
+// ✅ POST MARCAR MENSAGENS COMO LIDAS (POST em vez de PUT)
+app.post('/api/chat/conversas/:conversaId/ler', async (req, res) => {
   try {
     const conversaId = validateId(req.params.conversaId);
     const { usuarioId } = req.body;
@@ -1972,330 +2083,7 @@ app.put('/api/chat/conversas/:conversaId/ler', async (req, res) => {
   }
 });
 
-// ✅ GET VERIFICAR SE SÃO AMIGOS
-app.get('/api/amigos/verificar/:usuarioId/:amigoId', async (req, res) => {
-  try {
-    const usuarioId = validateId(req.params.usuarioId);
-    const amigoId = validateId(req.params.amigoId);
-    
-    if (!usuarioId || !amigoId) {
-      return res.status(400).json({ error: 'IDs inválidos' });
-    }
-
-    console.log(`🤝 Verificando amizade entre ${usuarioId} e ${amigoId}`);
-
-    const amizade = await prisma.amizade.findFirst({
-      where: {
-        OR: [
-          { usuarioId: usuarioId, amigoId: amigoId, status: 'aceito' },
-          { usuarioId: amigoId, amigoId: usuarioId, status: 'aceito' }
-        ]
-      },
-      include: {
-        usuario: {
-          select: {
-            id: true,
-            nome: true,
-            ra: true
-          }
-        },
-        amigo: {
-          select: {
-            id: true,
-            nome: true,
-            ra: true
-          }
-        }
-      }
-    });
-
-    const saoAmigos = amizade !== null;
-
-    res.json({
-      success: true,
-      saoAmigos: saoAmigos,
-      amizade: amizade
-    });
-
-  } catch (error) {
-    handleError(res, error, 'Erro ao verificar amizade');
-  }
-});
-
-// ✅ GET DETALHES DA CONVERSA
-app.get('/api/chat/conversas/:conversaId/detalhes', async (req, res) => {
-  try {
-    const conversaId = validateId(req.params.conversaId);
-    const { usuarioId } = req.query;
-
-    if (!conversaId || !usuarioId) {
-      return res.status(400).json({ 
-        error: 'Parâmetros necessários',
-        details: 'Forneça conversaId e usuarioId'
-      });
-    }
-
-    const usuarioIdValidado = validateId(usuarioId);
-    if (!usuarioIdValidado) {
-      return res.status(400).json({ error: 'ID do usuário inválido' });
-    }
-
-    console.log(`🔍 Buscando detalhes da conversa ${conversaId}`);
-
-    const conversa = await prisma.conversa.findFirst({
-      where: {
-        id: conversaId,
-        OR: [
-          { usuario1Id: usuarioIdValidado },
-          { usuario2Id: usuarioIdValidado }
-        ]
-      },
-      include: {
-        usuario1: {
-          select: {
-            id: true,
-            nome: true,
-            ra: true,
-            curso: true,
-            serie: true
-          }
-        },
-        usuario2: {
-          select: {
-            id: true,
-            nome: true,
-            ra: true,
-            curso: true,
-            serie: true
-          }
-        }
-      }
-    });
-
-    if (!conversa) {
-      return res.status(404).json({
-        success: false,
-        error: 'Conversa não encontrada'
-      });
-    }
-
-    // Determinar quem é o amigo
-    const amigo = conversa.usuario1Id === usuarioIdValidado 
-      ? conversa.usuario2 
-      : conversa.usuario1;
-
-    // Contar mensagens não lidas
-    const mensagensNaoLidas = await prisma.mensagemPrivada.count({
-      where: {
-        conversaId: conversaId,
-        remetenteId: { not: usuarioIdValidado },
-        lida: false
-      }
-    });
-
-    res.json({
-      success: true,
-      conversa: {
-        id: conversa.id,
-        amigo: amigo,
-        criadoEm: conversa.criadoEm,
-        atualizadoEm: conversa.atualizadoEm,
-        mensagensNaoLidas: mensagensNaoLidas
-      }
-    });
-
-  } catch (error) {
-    handleError(res, error, 'Erro ao buscar detalhes da conversa');
-  }
-});
-
-// ✅ GET CONTAGEM TOTAL DE NOTIFICAÇÕES NÃO LIDAS
-app.get('/api/notificacoes/usuarios/:usuarioId/total-nao-lidas', async (req, res) => {
-  try {
-    const usuarioId = validateId(req.params.usuarioId);
-    if (!usuarioId) {
-      return res.status(400).json({ error: 'ID do usuário inválido' });
-    }
-
-    console.log(`🔔 Contando notificações não lidas do usuário ${usuarioId}`);
-
-    const [notificacoesAmizade, mensagensNaoLidas] = await Promise.all([
-      prisma.notificacaoAmizade.count({
-        where: {
-          usuarioId: usuarioId,
-          lida: false
-        }
-      }),
-      prisma.mensagemPrivada.count({
-        where: {
-          conversa: {
-            OR: [
-              { usuario1Id: usuarioId },
-              { usuario2Id: usuarioId }
-            ]
-          },
-          remetenteId: { not: usuarioId },
-          lida: false
-        }
-      })
-    ]);
-
-    const totalNaoLidas = notificacoesAmizade + mensagensNaoLidas;
-
-    console.log(`✅ Total não lidas: ${totalNaoLidas} (${notificacoesAmizade} notificações + ${mensagensNaoLidas} mensagens)`);
-
-    res.json({
-      success: true,
-      totalNaoLidas: totalNaoLidas,
-      detalhes: {
-        notificacoesAmizade: notificacoesAmizade,
-        mensagensPrivadas: mensagensNaoLidas
-      }
-    });
-
-  } catch (error) {
-    handleError(res, error, 'Erro ao contar notificações não lidas');
-  }
-});
-
-// ✅ DELETE CONVERSA
-app.delete('/api/chat/conversas/:conversaId', async (req, res) => {
-  try {
-    const conversaId = validateId(req.params.conversaId);
-    const { usuarioId } = req.body;
-
-    if (!conversaId || !usuarioId) {
-      return res.status(400).json({ 
-        error: 'Dados incompletos',
-        details: 'Forneça conversaId e usuarioId'
-      });
-    }
-
-    const usuarioIdValidado = validateId(usuarioId);
-    if (!usuarioIdValidado) {
-      return res.status(400).json({ error: 'ID do usuário inválido' });
-    }
-
-    console.log(`🗑️ Usuário ${usuarioIdValidado} excluindo conversa ${conversaId}`);
-
-    // Verificar se o usuário tem acesso à conversa
-    const conversa = await prisma.conversa.findFirst({
-      where: {
-        id: conversaId,
-        OR: [
-          { usuario1Id: usuarioIdValidado },
-          { usuario2Id: usuarioIdValidado }
-        ]
-      }
-    });
-
-    if (!conversa) {
-      return res.status(404).json({
-        success: false,
-        error: 'Conversa não encontrada ou acesso não autorizado'
-      });
-    }
-
-    // Excluir mensagens primeiro
-    await prisma.mensagemPrivada.deleteMany({
-      where: { conversaId: conversaId }
-    });
-
-    // Excluir conversa
-    await prisma.conversa.delete({
-      where: { id: conversaId }
-    });
-
-    console.log(`✅ Conversa ${conversaId} excluída com sucesso`);
-
-    res.json({
-      success: true,
-      message: 'Conversa excluída com sucesso!'
-    });
-
-  } catch (error) {
-    handleError(res, error, 'Erro ao excluir conversa');
-  }
-});
-// ========== ROTAS ADICIONAIS PARA CORRIGIR ERROS 404 ========== //
-
-// ✅ GET USUÁRIO POR ID
-app.get('/api/usuarios/:id', async (req, res) => {
-  try {
-    const userId = validateId(req.params.id);
-    if (!userId) {
-      return res.status(400).json({ error: 'ID do usuário inválido' });
-    }
-
-    console.log(`👤 Buscando usuário ID: ${userId}`);
-
-    const usuario = await prisma.usuario.findUnique({
-      where: { id: userId },
-      select: {
-        id: true,
-        nome: true,
-        ra: true,
-        serie: true,
-        curso: true,
-        pontuacao: true,
-        desafiosCompletados: true,
-        status: true,
-        criadoEm: true,
-        atualizadoEm: true
-      }
-    });
-
-    if (!usuario) {
-      return res.status(404).json({ error: 'Usuário não encontrado' });
-    }
-
-    console.log(`✅ Usuário encontrado: ${usuario.nome}`);
-    
-    res.json(usuario);
-  } catch (error) {
-    handleError(res, error, 'Erro ao buscar usuário');
-  }
-});
-
-// ✅ GET AMIGO POR ID (para conversas)
-app.get('/api/amigos/usuarios/:id', async (req, res) => {
-  try {
-    const userId = validateId(req.params.id);
-    if (!userId) {
-      return res.status(400).json({ error: 'ID do usuário inválido' });
-    }
-
-    console.log(`👤 Buscando amigo ID: ${userId}`);
-
-    const usuario = await prisma.usuario.findUnique({
-      where: { id: userId },
-      select: {
-        id: true,
-        nome: true,
-        ra: true,
-        serie: true,
-        curso: true,
-        pontuacao: true,
-        status: true
-      }
-    });
-
-    if (!usuario) {
-      return res.status(404).json({ error: 'Usuário não encontrado' });
-    }
-
-    console.log(`✅ Amigo encontrado: ${usuario.nome}`);
-    
-    res.json({
-      success: true,
-      usuario: usuario
-    });
-  } catch (error) {
-    handleError(res, error, 'Erro ao buscar amigo');
-  }
-});
-
-// ✅ PUT MARCAR MENSAGENS COMO LIDAS
+// ✅ PUT MARCAR MENSAGENS COMO LIDAS (PUT também)
 app.put('/api/chat/conversas/:conversaId/ler', async (req, res) => {
   try {
     const conversaId = validateId(req.params.conversaId);
@@ -2313,7 +2101,7 @@ app.put('/api/chat/conversas/:conversaId/ler', async (req, res) => {
       return res.status(400).json({ error: 'ID do usuário inválido' });
     }
 
-    console.log(`📌 Marcando mensagens da conversa ${conversaId} como lidas para usuário ${usuarioIdValidado}`);
+    console.log(`📌 [PUT] Marcando mensagens da conversa ${conversaId} como lidas para usuário ${usuarioIdValidado}`);
 
     // Verificar se o usuário tem acesso à conversa
     const conversa = await prisma.conversa.findFirst({
@@ -2356,61 +2144,148 @@ app.put('/api/chat/conversas/:conversaId/ler', async (req, res) => {
   }
 });
 
-// ✅ GET VERIFICAR SE SÃO AMIGOS
-app.get('/api/amigos/verificar/:usuarioId/:amigoId', async (req, res) => {
+// ✅ GET AMIGO POR ID SIMPLIFICADO
+app.get('/api/amigos/:id', async (req, res) => {
   try {
-    const usuarioId = validateId(req.params.usuarioId);
-    const amigoId = validateId(req.params.amigoId);
+    const userId = validateId(req.params.id);
+    if (!userId) {
+      return res.status(400).json({ error: 'ID do usuário inválido' });
+    }
+
+    console.log(`🤝 Buscando amigo ID: ${userId}`);
+
+    const usuario = await prisma.usuario.findUnique({
+      where: { 
+        id: userId,
+        status: 'ativo'
+      },
+      select: {
+        id: true,
+        nome: true,
+        ra: true,
+        serie: true,
+        curso: true,
+        pontuacao: true
+      }
+    });
+
+    if (!usuario) {
+      return res.status(404).json({ 
+        success: false,
+        error: 'Amigo não encontrado'
+      });
+    }
+
+    console.log(`✅ Amigo encontrado: ${usuario.nome}`);
     
-    if (!usuarioId || !amigoId) {
+    res.json({
+      success: true,
+      amigo: usuario
+    });
+  } catch (error) {
+    handleError(res, error, 'Erro ao buscar amigo');
+  }
+});
+
+// ✅ POST ENVIAR MENSAGEM DIRETA
+app.post('/api/chat/mensagens/enviar', async (req, res) => {
+  try {
+    const { conversaId, remetenteId, conteudo } = req.body;
+
+    if (!conversaId || !remetenteId || !conteudo) {
+      return res.status(400).json({ 
+        error: 'Dados incompletos',
+        details: 'Forneça conversaId, remetenteId e conteudo'
+      });
+    }
+
+    const conversaIdValidado = validateId(conversaId);
+    const remetenteIdValidado = validateId(remetenteId);
+
+    if (!conversaIdValidado || !remetenteIdValidado) {
       return res.status(400).json({ error: 'IDs inválidos' });
     }
 
-    console.log(`🤝 Verificando amizade entre ${usuarioId} e ${amigoId}`);
+    if (conteudo.trim().length === 0) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'Mensagem vazia'
+      });
+    }
 
-    const amizade = await prisma.amizade.findFirst({
+    if (conteudo.length > 1000) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'Mensagem muito longa',
+        details: 'A mensagem não pode ter mais de 1000 caracteres'
+      });
+    }
+
+    console.log(`📤 Enviando mensagem para conversa ${conversaIdValidado}`);
+
+    // Verificar se a conversa existe e o remetente tem acesso
+    const conversa = await prisma.conversa.findFirst({
       where: {
+        id: conversaIdValidado,
         OR: [
-          { usuarioId: usuarioId, amigoId: amigoId, status: 'aceito' },
-          { usuarioId: amigoId, amigoId: usuarioId, status: 'aceito' }
+          { usuario1Id: remetenteIdValidado },
+          { usuario2Id: remetenteIdValidado }
         ]
+      }
+    });
+
+    if (!conversa) {
+      return res.status(403).json({ 
+        success: false,
+        error: 'Não autorizado',
+        details: 'Você não tem acesso a esta conversa'
+      });
+    }
+
+    // Criar mensagem
+    const mensagem = await prisma.mensagemPrivada.create({
+      data: {
+        conversaId: conversaIdValidado,
+        remetenteId: remetenteIdValidado,
+        conteudo: conteudo.trim(),
+        lida: false
       },
       include: {
-        usuario: {
+        remetente: {
           select: {
             id: true,
             nome: true,
-            ra: true
-          }
-        },
-        amigo: {
-          select: {
-            id: true,
-            nome: true,
-            ra: true
+            ra: true,
+            curso: true
           }
         }
       }
     });
 
-    const saoAmigos = amizade !== null;
+    // Atualizar timestamp da conversa
+    await prisma.conversa.update({
+      where: { id: conversaIdValidado },
+      data: { atualizadoEm: new Date() }
+    });
 
-    res.json({
+    console.log(`✅ Mensagem enviada: ID=${mensagem.id}`);
+
+    res.status(201).json({
       success: true,
-      saoAmigos: saoAmigos,
-      amizade: amizade
+      message: 'Mensagem enviada com sucesso!',
+      mensagem: mensagem
     });
 
   } catch (error) {
-    handleError(res, error, 'Erro ao verificar amizade');
+    handleError(res, error, 'Erro ao enviar mensagem');
   }
 });
 
-// ✅ GET DETALHES DA CONVERSA
-app.get('/api/chat/conversas/:conversaId/detalhes', async (req, res) => {
+// ✅ GET MENSAGENS DA CONVERSA COM PAGINAÇÃO
+app.get('/api/chat/conversas/:conversaId/mensagens/todas', async (req, res) => {
   try {
     const conversaId = validateId(req.params.conversaId);
-    const { usuarioId } = req.query;
+    const { usuarioId, page = 1, limit = 50 } = req.query;
 
     if (!conversaId || !usuarioId) {
       return res.status(400).json({ 
@@ -2424,8 +2299,9 @@ app.get('/api/chat/conversas/:conversaId/detalhes', async (req, res) => {
       return res.status(400).json({ error: 'ID do usuário inválido' });
     }
 
-    console.log(`🔍 Buscando detalhes da conversa ${conversaId}`);
+    console.log(`📨 Buscando mensagens da conversa ${conversaId} (página ${page})`);
 
+    // Verificar acesso
     const conversa = await prisma.conversa.findFirst({
       where: {
         id: conversaId,
@@ -2433,174 +2309,72 @@ app.get('/api/chat/conversas/:conversaId/detalhes', async (req, res) => {
           { usuario1Id: usuarioIdValidado },
           { usuario2Id: usuarioIdValidado }
         ]
-      },
-      include: {
-        usuario1: {
-          select: {
-            id: true,
-            nome: true,
-            ra: true,
-            curso: true,
-            serie: true
-          }
-        },
-        usuario2: {
-          select: {
-            id: true,
-            nome: true,
-            ra: true,
-            curso: true,
-            serie: true
-          }
-        }
       }
     });
 
     if (!conversa) {
-      return res.status(404).json({
+      return res.status(403).json({
         success: false,
-        error: 'Conversa não encontrada'
+        error: 'Acesso negado',
+        details: 'Você não tem acesso a esta conversa'
       });
     }
 
-    // Determinar quem é o amigo
-    const amigo = conversa.usuario1Id === usuarioIdValidado 
-      ? conversa.usuario2 
-      : conversa.usuario1;
-
-    // Contar mensagens não lidas
-    const mensagensNaoLidas = await prisma.mensagemPrivada.count({
-      where: {
-        conversaId: conversaId,
-        remetenteId: { not: usuarioIdValidado },
-        lida: false
-      }
-    });
-
-    res.json({
-      success: true,
-      conversa: {
-        id: conversa.id,
-        amigo: amigo,
-        criadoEm: conversa.criadoEm,
-        atualizadoEm: conversa.atualizadoEm,
-        mensagensNaoLidas: mensagensNaoLidas
-      }
-    });
-
-  } catch (error) {
-    handleError(res, error, 'Erro ao buscar detalhes da conversa');
-  }
-});
-
-// ✅ GET CONTAGEM TOTAL DE NOTIFICAÇÕES NÃO LIDAS
-app.get('/api/notificacoes/usuarios/:usuarioId/total-nao-lidas', async (req, res) => {
-  try {
-    const usuarioId = validateId(req.params.usuarioId);
-    if (!usuarioId) {
-      return res.status(400).json({ error: 'ID do usuário inválido' });
-    }
-
-    console.log(`🔔 Contando notificações não lidas do usuário ${usuarioId}`);
-
-    const [notificacoesAmizade, mensagensNaoLidas] = await Promise.all([
-      prisma.notificacaoAmizade.count({
-        where: {
-          usuarioId: usuarioId,
-          lida: false
-        }
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    
+    const [mensagens, total] = await Promise.all([
+      prisma.mensagemPrivada.findMany({
+        where: { conversaId: conversaId },
+        include: {
+          remetente: {
+            select: {
+              id: true,
+              nome: true,
+              ra: true,
+              curso: true
+            }
+          }
+        },
+        orderBy: { criadoEm: 'desc' },
+        take: parseInt(limit),
+        skip: skip
       }),
       prisma.mensagemPrivada.count({
-        where: {
-          conversa: {
-            OR: [
-              { usuario1Id: usuarioId },
-              { usuario2Id: usuarioId }
-            ]
-          },
-          remetenteId: { not: usuarioId },
-          lida: false
-        }
+        where: { conversaId: conversaId }
       })
     ]);
 
-    const totalNaoLidas = notificacoesAmizade + mensagensNaoLidas;
+    // Marcar mensagens como lidas (se for a primeira página)
+    if (parseInt(page) === 1) {
+      await prisma.mensagemPrivada.updateMany({
+        where: {
+          conversaId: conversaId,
+          remetenteId: { not: usuarioIdValidado },
+          lida: false
+        },
+        data: { lida: true }
+      });
+    }
 
-    console.log(`✅ Total não lidas: ${totalNaoLidas} (${notificacoesAmizade} notificações + ${mensagensNaoLidas} mensagens)`);
+    console.log(`✅ ${mensagens.length} mensagens carregadas (total: ${total})`);
 
     res.json({
       success: true,
-      totalNaoLidas: totalNaoLidas,
-      detalhes: {
-        notificacoesAmizade: notificacoesAmizade,
-        mensagensPrivadas: mensagensNaoLidas
+      mensagens: mensagens.reverse(), // Ordenar do mais antigo para o mais recente
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total: total,
+        totalPages: Math.ceil(total / parseInt(limit)),
+        hasMore: total > skip + mensagens.length
       }
     });
 
   } catch (error) {
-    handleError(res, error, 'Erro ao contar notificações não lidas');
+    handleError(res, error, 'Erro ao buscar mensagens da conversa');
   }
 });
 
-// ✅ DELETE CONVERSA
-app.delete('/api/chat/conversas/:conversaId', async (req, res) => {
-  try {
-    const conversaId = validateId(req.params.conversaId);
-    const { usuarioId } = req.body;
-
-    if (!conversaId || !usuarioId) {
-      return res.status(400).json({ 
-        error: 'Dados incompletos',
-        details: 'Forneça conversaId e usuarioId'
-      });
-    }
-
-    const usuarioIdValidado = validateId(usuarioId);
-    if (!usuarioIdValidado) {
-      return res.status(400).json({ error: 'ID do usuário inválido' });
-    }
-
-    console.log(`🗑️ Usuário ${usuarioIdValidado} excluindo conversa ${conversaId}`);
-
-    // Verificar se o usuário tem acesso à conversa
-    const conversa = await prisma.conversa.findFirst({
-      where: {
-        id: conversaId,
-        OR: [
-          { usuario1Id: usuarioIdValidado },
-          { usuario2Id: usuarioIdValidado }
-        ]
-      }
-    });
-
-    if (!conversa) {
-      return res.status(404).json({
-        success: false,
-        error: 'Conversa não encontrada ou acesso não autorizado'
-      });
-    }
-
-    // Excluir mensagens primeiro
-    await prisma.mensagemPrivada.deleteMany({
-      where: { conversaId: conversaId }
-    });
-
-    // Excluir conversa
-    await prisma.conversa.delete({
-      where: { id: conversaId }
-    });
-
-    console.log(`✅ Conversa ${conversaId} excluída com sucesso`);
-
-    res.json({
-      success: true,
-      message: 'Conversa excluída com sucesso!'
-    });
-
-  } catch (error) {
-    handleError(res, error, 'Erro ao excluir conversa');
-  }
-});
 // ========== SISTEMA DE DESAFIOS (CRUD) ========== //
 
 // ✅ GET TODOS OS DESAFIOS (ADMIN)
@@ -3987,5 +3761,3 @@ process.on('SIGTERM', async () => {
 
 // Inicia o servidor
 startServer();
-
-
