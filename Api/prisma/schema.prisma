@@ -166,7 +166,53 @@ model Aula {
   
   @@map("aulas")
 }
+// ========== SISTEMA DE PROGRESSO ========== //
 
+model ProgressoAula {
+  id             Int      @id @default(autoincrement())
+  usuarioId      Int
+  aulaId         Int
+  concluida      Boolean  @default(false)
+  dataConclusao  DateTime?
+  criadoEm       DateTime @default(now())
+  atualizadoEm   DateTime @updatedAt
+
+  usuario        Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  aula           Aula     @relation(fields: [aulaId], references: [id], onDelete: Cascade)
+
+  @@unique([usuarioId, aulaId])
+  @@map("progresso_aulas")
+}
+
+model ProgressoModulo {
+  id             Int      @id @default(autoincrement())
+  usuarioId      Int
+  moduloId       Int
+  progresso      Int      @default(0) // 0-100
+  criadoEm       DateTime @default(now())
+  atualizadoEm   DateTime @updatedAt
+
+  usuario        Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  modulo         Modulo   @relation(fields: [moduloId], references: [id], onDelete: Cascade)
+
+  @@unique([usuarioId, moduloId])
+  @@map("progresso_modulos")
+}
+
+model ProgressoCurso {
+  id             Int      @id @default(autoincrement())
+  usuarioId      Int
+  cursoId        Int
+  progresso      Int      @default(0) // 0-100
+  criadoEm       DateTime @default(now())
+  atualizadoEm   DateTime @updatedAt
+
+  usuario        Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  curso          Curso    @relation(fields: [cursoId], references: [id], onDelete: Cascade)
+
+  @@unique([usuarioId, cursoId])
+  @@map("progresso_cursos")
+}
 
 model MensagemChat {
   id        Int      @id @default(autoincrement())
@@ -237,5 +283,6 @@ model MensagemPrivada {
   
   @@map("mensagens_privadas")
 }
+
 
 
