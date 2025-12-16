@@ -32,6 +32,11 @@ model Usuario {
   notificacoesRecebidas NotificacaoAmizade[] @relation("notificacoes_usuario")
   notificacoesEnviadas  NotificacaoAmizade[] @relation("notificacoes_remetente")
   
+  // NOVAS RELAÇÕES DE PROGRESSO
+  progressoAulas      ProgressoAula[]
+  progressoModulos    ProgressoModulo[]
+  progressoCursos     ProgressoCurso[]
+  
   @@map("Usuario")
 }
 
@@ -124,6 +129,8 @@ model Curso {
   ativo     Boolean  @default(true)
   
   modulos   Modulo[]
+  // NOVA RELAÇÃO
+  progressos ProgressoCurso[]
   
   criadoEm  DateTime @default(now())
   atualizadoEm DateTime @updatedAt
@@ -141,6 +148,8 @@ model Modulo {
   cursoId   Int
   curso     Curso    @relation(fields: [cursoId], references: [id], onDelete: Cascade)
   aulas     Aula[]
+  // NOVA RELAÇÃO
+  progressos ProgressoModulo[]
   
   criadoEm  DateTime @default(now())
   atualizadoEm DateTime @updatedAt
@@ -160,12 +169,15 @@ model Aula {
   
   moduloId  Int
   modulo    Modulo   @relation(fields: [moduloId], references: [id], onDelete: Cascade)
+  // NOVA RELAÇÃO
+  progressos ProgressoAula[]
   
   criadoEm  DateTime @default(now())
   atualizadoEm DateTime @updatedAt
   
   @@map("aulas")
 }
+
 // ========== SISTEMA DE PROGRESSO ========== //
 
 model ProgressoAula {
@@ -225,7 +237,6 @@ model MensagemChat {
   @@map("mensagens_chat")
 }
 
-
 model Amizade {
   id          Int      @id @default(autoincrement())
   usuarioId   Int
@@ -283,6 +294,3 @@ model MensagemPrivada {
   
   @@map("mensagens_privadas")
 }
-
-
-
