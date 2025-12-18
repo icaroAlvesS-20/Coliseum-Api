@@ -3298,3 +3298,4 @@ process.on('SIGTERM', async () => {
 
 // Inicia o servidor
 startServer();
+
