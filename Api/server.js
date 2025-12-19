@@ -1901,8 +1901,6 @@ app.get('/api/cursos', async (req, res) => {
   }
 });
     
-});
-
 // ✅ GET CURSO POR ID
 app.get('/api/cursos/:id', async (req, res) => {
   try {
@@ -3444,5 +3442,6 @@ process.on('SIGTERM', async () => {
 
 // Inicia o servidor
 startServer();
+
 
 
