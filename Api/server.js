@@ -1828,32 +1828,7 @@ app.post('/api/cursos', async (req, res) => {
       details: process.env.NODE_ENV === 'development' ? error.message : 'Erro interno'
     });
   }
-  // ✅ GET TODOS OS CURSOS (COM FILTRO POR PERMISSÃO)
-app.get('/api/cursos', async (req, res) => {
-  try {
-    console.log('📚 Buscando todos os cursos...');
-    
-    const { usuarioId } = req.query;
-    const usuarioIdValidado = usuarioId ? validateId(usuarioId) : null;
-    
-    let cursos = await prisma.curso.findMany({
-      where: { ativo: true },
-      include: {
-        modulos: {
-          where: { ativo: true },
-          include: {
-            aulas: {
-              where: { ativo: true },
-              orderBy: { ordem: 'asc' }
-            }
-          },
-          orderBy: { ordem: 'asc' }
-        }
-      },
-      orderBy: { criadoEm: 'desc' }
-    });
 
-// ✅ GET TODOS OS CURSOS (COM FILTRO POR PERMISSÃO)
 app.get('/api/cursos', async (req, res) => {
   try {
     console.log('📚 Buscando todos os cursos...');
@@ -1900,7 +1875,6 @@ app.get('/api/cursos', async (req, res) => {
     handleError(res, error, 'Erro ao carregar cursos');
   }
 });
-    
 // ✅ GET CURSO POR ID
 app.get('/api/cursos/:id', async (req, res) => {
   try {
@@ -1938,6 +1912,24 @@ app.get('/api/cursos/:id', async (req, res) => {
         success: false,
         error: 'Curso não encontrado' 
       });
+    }
+
+    // ✅ VALIDAÇÃO DE PERMISSÃO
+    if (usuarioIdValidado) {
+      const usuario = await prisma.usuario.findUnique({
+        where: { id: usuarioIdValidado },
+        select: { curso: true }
+      });
+
+      if (usuario && !verificarPermissaoCurso(usuario.curso, curso.materia)) {
+        return res.status(403).json({
+          success: false,
+          error: 'Acesso negado',
+          message: `Usuários do curso ${usuario.curso} não podem acessar cursos de ${curso.materia}`,
+          cursoUsuario: usuario.curso,
+          materiaCurso: curso.materia
+        });
+      }
     }
 
     // Se houver usuário, buscar progresso
@@ -1999,56 +1991,6 @@ app.get('/api/cursos/:id', async (req, res) => {
   } catch (error) {
     handleError(res, error, 'Erro ao carregar curso');
   }
-
-if (!curso) {
-    return res.status(404).json({ 
-        success: false,
-        error: 'Curso não encontrado' 
-    });
-}
-
-if (usuarioIdValidado) {
-    const usuario = await prisma.usuario.findUnique({
-        where: { id: usuarioIdValidado },
-        select: { curso: true }
-    });
-
-    if (usuario && !verificarPermissaoCurso(usuario.curso, curso.materia)) {
-        return res.status(403).json({
-            success: false,
-            error: 'Acesso negado',
-            message: `Usuários do curso ${usuario.curso} não podem acessar cursos de ${curso.materia}`,
-            cursoUsuario: usuario.curso,
-            materiaCurso: curso.materia
-        });
-    }
-}
-
-  if (!curso) {
-    return res.status(404).json({ 
-        success: false,
-        error: 'Curso não encontrado' 
-    });
-}
-
-// ✅ INSERIR ESTAS LINHAS AQUI - VALIDAÇÃO DE PERMISSÃO
-if (usuarioIdValidado) {
-    const usuario = await prisma.usuario.findUnique({
-        where: { id: usuarioIdValidado },
-        select: { curso: true }
-    });
-
-    if (usuario && !verificarPermissaoCurso(usuario.curso, curso.materia)) {
-        return res.status(403).json({
-            success: false,
-            error: 'Acesso negado',
-            message: `Usuários do curso ${usuario.curso} não podem acessar cursos de ${curso.materia}`,
-            cursoUsuario: usuario.curso,
-            materiaCurso: curso.materia
-        });
-    }
-}
-// FIM DA INSERÇÃO
 });
 
 // ✅ GET MÓDULOS DO CURSO COM PROGRESSO DO USUÁRIO
@@ -3442,6 +3384,7 @@ process.on('SIGTERM', async () => {
 
 // Inicia o servidor
 startServer();
+
 
 
 
