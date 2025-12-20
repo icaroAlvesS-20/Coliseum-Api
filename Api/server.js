@@ -1512,79 +1512,110 @@ app.get('/api/chat/mensagens/recentes', async (req, res) => {
   }
 });
 
+// ✅ ROTA CORRIGIDA PARA ENVIO DE MENSAGENS
 app.post('/api/chat/mensagens', async (req, res) => {
-  try {
-    console.log('📝 Recebendo nova mensagem...');
-    
-    const { usuarioId, conteudo, tipo = 'texto' } = req.body;
+    try {
+        console.log('📝 Recebendo nova mensagem...');
+        
+        const { usuarioId, conteudo, tipo = 'texto', isAdmin = false } = req.body;
 
-    if (!usuarioId || !conteudo || conteudo.trim() === '') {
-      return res.status(400).json({
-        error: 'Dados incompletos',
-        details: 'Usuário e conteúdo da mensagem são obrigatórios'
-      });
-    }
-
-    const usuario = await prisma.usuario.findUnique({
-      where: { id: parseInt(usuarioId) },
-      select: { id: true, nome: true, status: true }
-    });
-
-    if (!usuario) {
-      return res.status(404).json({
-        error: 'Usuário não encontrado',
-        details: 'O usuário não existe no sistema'
-      });
-    }
-
-    if (usuario.status !== 'ativo') {
-      return res.status(403).json({
-        error: 'Usuário inativo',
-        details: 'Usuário não pode enviar mensagens'
-      });
-    }
-
-    if (conteudo.trim().length > 1000) {
-      return res.status(400).json({
-        error: 'Mensagem muito longa',
-        details: 'A mensagem não pode ter mais de 1000 caracteres'
-      });
-    }
-
-    console.log(`💬 Usuário ${usuario.nome} enviando mensagem...`);
-
-    const novaMensagem = await prisma.mensagemChat.create({
-      data: {
-        usuarioId: parseInt(usuarioId),
-        conteudo: conteudo.trim(),
-        tipo: tipo,
-        timestamp: new Date()
-      },
-      include: {
-        usuario: {
-          select: {
-            id: true,
-            nome: true,
-            ra: true,
-            serie: true,
-            curso: true,
-            pontuacao: true
-          }
+        // VALIDAÇÃO FLEXIBILIZADA
+        if (!conteudo || conteudo.trim() === '') {
+            return res.status(400).json({
+                error: 'Conteúdo da mensagem é obrigatório'
+            });
         }
-      }
-    });
 
-    console.log(`✅ Mensagem enviada por ${usuario.nome}: "${conteudo.substring(0, 30)}..."`);
+        let usuario = null;
+        
+        // Se NÃO for admin e tiver usuarioId, validar usuário
+        if (!isAdmin) {
+            if (!usuarioId) {
+                return res.status(400).json({
+                    error: 'ID do usuário é obrigatório para mensagens não-administrativas'
+                });
+            }
+            
+            usuario = await prisma.usuario.findUnique({
+                where: { id: parseInt(usuarioId) },
+                select: { id: true, nome: true, status: true }
+            });
 
-    res.status(201).json({
-      success: true,
-      message: 'Mensagem enviada com sucesso!',
-      mensagem: novaMensagem
-    });
+            if (!usuario) {
+                return res.status(404).json({
+                    error: 'Usuário não encontrado'
+                });
+            }
 
-  } catch (error) {
-    handleError(res, error, 'Erro ao enviar mensagem');
-  }
+            if (usuario.status !== 'ativo') {
+                return res.status(403).json({
+                    error: 'Usuário inativo'
+                });
+            }
+        }
+        // Se FOR admin, pode enviar sem usuarioId válido
+        else if (isAdmin && !usuarioId) {
+            console.log('👑 Mensagem administrativa recebida');
+        }
+
+        if (conteudo.trim().length > 1000) {
+            return res.status(400).json({
+                error: 'Mensagem muito longa',
+                details: 'A mensagem não pode ter mais de 1000 caracteres'
+            });
+        }
+
+        console.log(`💬 ${isAdmin ? 'Admin' : 'Usuário ' + usuario?.nome} enviando mensagem...`);
+
+        // DADOS PARA SALVAR NO BANCO
+        const dadosMensagem = {
+            conteudo: conteudo.trim(),
+            tipo: tipo,
+            timestamp: new Date()
+        };
+
+        // Se tiver usuarioId (admin ou não), vincular ao usuário
+        if (usuarioId) {
+            dadosMensagem.usuarioId = parseInt(usuarioId);
+        }
+        // Se for admin sem usuarioId, salvar como mensagem do sistema
+        else if (isAdmin) {
+            dadosMensagem.usuarioId = null; // Mensagem do sistema
+            dadosMensagem.conteudo = `👑 ADMIN: ${conteudo.trim()}`;
+            dadosMensagem.tipo = 'admin';
+        }
+
+        const novaMensagem = await prisma.mensagemChat.create({
+            data: dadosMensagem,
+            include: {
+                usuario: {
+                    select: {
+                        id: true,
+                        nome: true,
+                        ra: true,
+                        serie: true,
+                        curso: true,
+                        pontuacao: true
+                    }
+                }
+            }
+        });
+
+        console.log(`✅ Mensagem enviada: "${conteudo.substring(0, 30)}..."`);
+
+        res.status(201).json({
+            success: true,
+            message: 'Mensagem enviada com sucesso!',
+            mensagem: novaMensagem
+        });
+
+    } catch (error) {
+        console.error('❌ Erro ao enviar mensagem:', error);
+        res.status(500).json({
+            error: 'Erro ao enviar mensagem',
+            details: process.env.NODE_ENV === 'development' ? error.message : 'Erro interno'
+        });
+    }
 });
 
 app.delete('/api/chat/mensagens/:id', async (req, res) => {
@@ -3448,6 +3479,7 @@ process.on('SIGTERM', async () => {
 
 // Inicia o servidor
 startServer();
+
 
 
 
