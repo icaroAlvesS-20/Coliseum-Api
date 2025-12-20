@@ -1663,6 +1663,98 @@ app.get('/api/chat/estatisticas', async (req, res) => {
   }
 });
 
+app.delete('/api/chat/mensagens/todas', async (req, res) => {
+  try {
+    console.log('🗑️ Limpando todas as mensagens do chat...');
+    
+    const { isAdmin } = req.body;
+    
+    if (!isAdmin) {
+      return res.status(403).json({
+        error: 'Não autorizado',
+        details: 'Apenas administradores podem limpar o chat'
+      });
+    }
+    
+    const count = await prisma.mensagemChat.deleteMany({});
+    
+    console.log(`✅ ${count.count} mensagens excluídas`);
+    
+    res.json({
+      success: true,
+      message: `Chat limpo com sucesso! ${count.count} mensagens removidas.`,
+      count: count.count
+    });
+    
+  } catch (error) {
+    handleError(res, error, 'Erro ao limpar chat');
+  }
+});
+
+// ✅ PUT ATUALIZAR MENSAGEM DO CHAT (nova)
+app.put('/api/chat/mensagens/:id', async (req, res) => {
+  try {
+    const mensagemId = validateId(req.params.id);
+    if (!mensagemId) {
+      return res.status(400).json({ error: 'ID da mensagem inválido' });
+    }
+
+    const { conteudo, isAdmin } = req.body;
+
+    if (!conteudo || conteudo.trim() === '') {
+      return res.status(400).json({
+        error: 'Conteúdo inválido',
+        details: 'O conteúdo da mensagem é obrigatório'
+      });
+    }
+
+    if (!isAdmin) {
+      return res.status(403).json({
+        error: 'Não autorizado',
+        details: 'Apenas administradores podem editar mensagens'
+      });
+    }
+
+    console.log(`✏️ Editando mensagem ID: ${mensagemId}`);
+
+    const mensagem = await prisma.mensagemChat.findUnique({
+      where: { id: mensagemId }
+    });
+
+    if (!mensagem) {
+      return res.status(404).json({ error: 'Mensagem não encontrada' });
+    }
+
+    const mensagemAtualizada = await prisma.mensagemChat.update({
+      where: { id: mensagemId },
+      data: {
+        conteudo: conteudo.trim(),
+        timestamp: new Date()
+      },
+      include: {
+        usuario: {
+          select: {
+            id: true,
+            nome: true,
+            ra: true
+          }
+        }
+      }
+    });
+
+    console.log(`✅ Mensagem editada: ${mensagemId}`);
+
+    res.json({
+      success: true,
+      message: 'Mensagem editada com sucesso!',
+      mensagem: mensagemAtualizada
+    });
+
+  } catch (error) {
+    handleError(res, error, 'Erro ao editar mensagem');
+  }
+});
+
 // ========== SISTEMA DE CURSOS ========== //
 
 // ✅ GET TODOS OS CURSOS
@@ -3356,6 +3448,7 @@ process.on('SIGTERM', async () => {
 
 // Inicia o servidor
 startServer();
+
 
 
 
