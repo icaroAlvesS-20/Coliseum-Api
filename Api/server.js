@@ -278,20 +278,19 @@ async function atualizarProgressoModulo(usuarioId, moduloId) {
 // ✅ FUNÇÃO PARA VERIFICAR PERMISSÃO DE ACESSO AO CURSO
 function verificarPermissaoCurso(cursoUsuario, materiaCurso) {
     const mapeamentoCursos = {
-        // Se o usuário é de "matematica", pode acessar:
-        'matematica': ['matematica', 'programacao'],
-        
-        // Se o usuário é de "csn", pode acessar:
-        'csn': ['csn', 'programacao'],
-        
-        // Se o usuário é de "csh", pode acessar:
-        'csh': ['csh', 'portugues', 'programacao'],
-        
-        // Se o usuário é de "portugues", pode acessar:
-        'portugues': ['portugues', 'csh', 'programacao'],
-        
-        // Se o usuário é de "programacao", pode acessar:
-        'programacao': ['programacao']
+
+      'reforco': ['reforco'],
+    
+    'preparatorio': ['preparatorio'],
+
+    'informatica': ['informatica'],
+    
+    'robotica': ['robotica'],
+    
+    'games': ['games'],
+    
+    'programacao': ['programacao']
+      
     };
     
     return mapeamentoCursos[cursoUsuario]?.includes(materiaCurso) || false;
@@ -399,6 +398,31 @@ app.get('/api/test-db', async (req, res) => {
     res.status(503).json({
       success: false,
       error: 'Falha na conexão com banco',
+      details: error.message
+    });
+  }
+});
+
+// ✅ ROTA DE TESTE DE CRIPTOGRAFIA
+app.get('/api/test-encryption', async (req, res) => {
+  try {
+    const testUrl = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
+    
+    // Testar criptografia
+    const encrypted = encryptionService.encryptYouTubeUrl(testUrl);
+    const decrypted = encryptionService.decryptYouTubeUrl(encrypted);
+    
+    res.json({
+      success: true,
+      original: testUrl,
+      encrypted: encrypted,
+      decrypted: decrypted,
+      match: testUrl === decrypted,
+      algorithm: encryptionService.algorithm
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Erro no teste de criptografia',
       details: error.message
     });
   }
@@ -3515,6 +3539,7 @@ process.on('SIGTERM', async () => {
 
 // Inicia o servidor
 startServer();
+
 
 
 
