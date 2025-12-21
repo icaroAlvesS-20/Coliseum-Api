@@ -45,7 +45,9 @@ model Video {
   titulo    String
   materia   String
   categoria String
-  url       String
+  url       String    
+  iv        String?   
+  tag       String?   
   descricao String?
   duracao   Int
   criadoEm  DateTime @default(now())
@@ -53,7 +55,6 @@ model Video {
 
   @@map("videos")
 }
-
 model Desafio {
   id                Int                @id @default(autoincrement())
   titulo            String
@@ -162,14 +163,16 @@ model Aula {
   titulo    String
   descricao String?
   conteudo  String?
-  videoUrl  String?
+  videoUrl  String?  
+  videoIv   String?  
+  videoTag  String?   
   duracao   Int      @default(15)
   ordem     Int      @default(1)
   ativo     Boolean  @default(true)
   
   moduloId  Int
   modulo    Modulo   @relation(fields: [moduloId], references: [id], onDelete: Cascade)
-  // NOVA RELAÇÃO
+  
   progressos ProgressoAula[]
   
   criadoEm  DateTime @default(now())
@@ -294,4 +297,5 @@ model MensagemPrivada {
   
   @@map("mensagens_privadas")
 }
+
 
