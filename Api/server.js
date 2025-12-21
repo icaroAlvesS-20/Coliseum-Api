@@ -1,6 +1,8 @@
 import express from 'express';
 import cors from 'cors';
 import { PrismaClient } from '@prisma/client';
+import { encryptionService } from './services/encryption.service.js';
+import { encryptResponseMiddleware, encryptRequestBodyMiddleware } from './middlewares/encryption.middleware.js';
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -69,6 +71,13 @@ app.use(cors({
 
 app.options('*', cors());
 app.use(express.json({ limit: '10mb' }));
+
+// ========== MIDDLEWARE DE CRIPTOGRAFIA ========== //
+app.use(encryptResponseMiddleware);
+
+// Para rotas específicas que lidam com dados sensíveis
+app.use('/api/videos', encryptRequestBodyMiddleware);
+app.use('/api/aulas', encryptRequestBodyMiddleware);
 
 // ========== MIDDLEWARE DE LOG E CONEXÃO ========== //
 
@@ -2173,6 +2182,7 @@ app.get('/api/cursos/:id/modulos', async (req, res) => {
 });
 
 // ✅ GET AULA POR ID
+// ✅ GET AULA POR ID (com descriptografia)
 app.get('/api/aulas/:id', async (req, res) => {
   try {
     const aulaId = validateId(req.params.id);
@@ -2222,13 +2232,21 @@ app.get('/api/aulas/:id', async (req, res) => {
       });
     }
 
+    // Descriptografar videoUrl
+    const aulaDescriptografada = {
+      ...aula,
+      videoUrl: aula.videoUrl ? encryptionService.decryptYouTubeUrl({
+        encrypted: aula.videoUrl,
+        iv: aula.videoIv,
+        tag: aula.videoTag
+      }) : null,
+      concluida: progresso?.concluida || false,
+      dataConclusao: progresso?.dataConclusao
+    };
+
     res.json({
       success: true,
-      aula: {
-        ...aula,
-        concluida: progresso?.concluida || false,
-        dataConclusao: progresso?.dataConclusao
-      }
+      aula: aulaDescriptografada
     });
   } catch (error) {
     handleError(res, error, 'Erro ao carregar aula');
@@ -2597,19 +2615,25 @@ app.get('/api/progresso/usuarios/:usuarioId/geral', async (req, res) => {
 
 // ========== SISTEMA DE VÍDEOS ========== //
 
-// ✅ GET TODOS OS VÍDEOS
 app.get('/api/videos', async (req, res) => {
   try {
     const videos = await prisma.video.findMany({ 
       orderBy: { materia: 'asc' } 
     });
-    res.json(videos);
+    
+    // Descriptografar URLs
+    const videosComUrlsDescriptografadas = videos.map(video => ({
+      ...video,
+      url: encryptionService.decryptYouTubeUrl(video.url)
+    }));
+    
+    res.json(videosComUrlsDescriptografadas);
   } catch (error) {
     handleError(res, error, 'Erro ao carregar vídeos');
   }
 });
 
-// ✅ POST CRIAR VÍDEO
+// ✅ POST CRIAR VÍDEO (com criptografia)
 app.post('/api/videos', async (req, res) => {
   try {
     const { titulo, materia, categoria, url, descricao, duracao } = req.body;
@@ -2624,12 +2648,17 @@ app.post('/api/videos', async (req, res) => {
       });
     }
 
+    // Criptografar URL antes de salvar
+    const encryptedUrl = encryptionService.encryptYouTubeUrl(url.trim());
+
     const novoVideo = await prisma.video.create({
       data: {
         titulo: titulo.trim(),
         materia: materia.trim(),
         categoria: categoria.trim(),
-        url: url.trim(),
+        url: encryptedUrl.encrypted, 
+        iv: encryptedUrl.iv,
+        tag: encryptedUrl.tag,
         descricao: descricao ? descricao.trim() : '',
         duracao: parseInt(duracao)
       }
@@ -2638,7 +2667,14 @@ app.post('/api/videos', async (req, res) => {
     res.status(201).json({
       success: true,
       message: 'Vídeo adicionado com sucesso!',
-      video: novoVideo
+      video: {
+        ...novoVideo,
+        url: encryptionService.decryptYouTubeUrl({
+          encrypted: novoVideo.url,
+          iv: novoVideo.iv,
+          tag: novoVideo.tag
+        })
+      }
     });
   } catch (error) {
     handleError(res, error, 'Erro ao criar vídeo');
@@ -3479,6 +3515,7 @@ process.on('SIGTERM', async () => {
 
 // Inicia o servidor
 startServer();
+
 
 
 
