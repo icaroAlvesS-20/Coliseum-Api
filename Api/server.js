@@ -275,21 +275,36 @@ async function atualizarProgressoModulo(usuarioId, moduloId) {
   }
 }
 
-// ✅ FUNÇÃO PARA VERIFICAR PERMISSÃO DE ACESSO AO CURSO
-// ✅ FUNÇÃO CORRIGIDA PARA VERIFICAR PERMISSÃO DE ACESSO AO CURSO
 function verificarPermissaoCurso(cursoUsuario, materiaCurso) {
-    // Mapeamento CORRETO: Quais matérias cada usuário pode ver
-    const PERMISSOES_POR_CURSO = {
-        'reforco': ['algebra', 'geometria', 'quimica', 'fisica', 'biologia'],
-        'preparatorio': ['algebra', 'geometria', 'quimica', 'fisica', 'historia', 'geografia', 'gramatica'],
-        'informatica': ['windows', 'word', 'excel', 'powerpoint', 'internet'],
-        'robotica': ['arduino', 'eletronica', 'mecanica', 'programacao_basica'],
-        'games': ['unity', 'blender', 'game_design', 'programacao_jogos'],
-        'programacao': ['python', 'javascript', 'html', 'css', 'react', 'nodejs']
-    };
+    console.log(`🔐 Backend: Usuário=${cursoUsuario}, Matéria=${materiaCurso}`);
     
-    // Verifica se o usuário tem permissão para a matéria
-    return PERMISSOES_POR_CURSO[cursoUsuario]?.includes(materiaCurso) || false;
+    if (!cursoUsuario || !materiaCurso) {
+        return false;
+    }
+    
+    let categoriaMateria = 'outros';
+    const materiaLower = materiaCurso.toLowerCase();
+    
+    if (['algebra', 'geometria', 'quimica', 'fisica'].some(m => materiaLower.includes(m))) {
+        categoriaMateria = 'reforco';
+    } else if (['historia', 'geografia', 'gramatica'].some(m => materiaLower.includes(m))) {
+        categoriaMateria = 'preparatorio';
+    } else if (['python', 'javascript', 'html', 'css'].some(m => materiaLower.includes(m))) {
+        categoriaMateria = 'programacao';
+    } else if (['arduino', 'robotica'].some(m => materiaLower.includes(m))) {
+        categoriaMateria = 'robotica';
+    } else if (['unity', 'blender', 'game'].some(m => materiaLower.includes(m))) {
+        categoriaMateria = 'games';
+    } else if (['word', 'excel', 'powerpoint'].some(m => materiaLower.includes(m))) {
+        categoriaMateria = 'informatica';
+    }
+    
+    // Usuário só pode acessar sua própria categoria
+    const resultado = cursoUsuario.toLowerCase() === categoriaMateria;
+    
+    console.log(`✅ Backend: ${cursoUsuario} → ${categoriaMateria}: ${resultado ? 'PERMITIDO' : 'BLOQUEADO'}`);
+    
+    return resultado;
 }
 
 // ========== CONEXÃO E CONFIGURAÇÃO DO BANCO ========== //
@@ -3535,6 +3550,7 @@ process.on('SIGTERM', async () => {
 
 // Inicia o servidor
 startServer();
+
 
 
 
