@@ -1832,7 +1832,6 @@ app.put('/api/chat/mensagens/:id', async (req, res) => {
 
 // ========== SISTEMA DE CURSOS ========== //
 
-// ✅ GET TODOS OS CURSOS
 app.get('/api/cursos', async (req, res) => {
   try {
     console.log('📚 Buscando todos os cursos...');
@@ -1873,7 +1872,30 @@ app.get('/api/cursos', async (req, res) => {
     }
 
     console.log(`✅ ${cursos.length} cursos carregados`);
-    res.json(cursos);
+    
+    // ✅ GARANTIR QUE O RETORNO SEJA JSON VÁLIDO
+    const respostaJSON = JSON.stringify(cursos);
+    
+    // VERIFICAÇÃO DE SEGURANÇA
+    try {
+      JSON.parse(respostaJSON); // Testa se é JSON válido
+      
+      // Define cabeçalho correto e envia
+      res.setHeader('Content-Type', 'application/json');
+      res.send(respostaJSON);
+      
+    } catch (jsonError) {
+      console.error('❌ ERRO: Tentativa de enviar JSON inválido!');
+      console.error('Conteúdo problemático:', respostaJSON.substring(0, 500));
+      
+      // Envia resposta segura em caso de erro
+      res.status(500).json({
+        success: false,
+        error: 'Erro ao processar dados',
+        message: 'Erro interno no formato dos dados'
+      });
+    }
+    
   } catch (error) {
     console.error('❌ Erro ao carregar cursos:', error);
     handleError(res, error, 'Erro ao carregar cursos');
@@ -3550,6 +3572,7 @@ process.on('SIGTERM', async () => {
 
 // Inicia o servidor
 startServer();
+
 
 
 
