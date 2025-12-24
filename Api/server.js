@@ -8,7 +8,6 @@ const app = express();
 const PORT = process.env.PORT || 10000;
 
 // ========== CONFIGURAÇÕES ========== //
-
 const prisma = new PrismaClient({
   log: ['warn', 'error'],
   errorFormat: 'minimal',
@@ -36,41 +35,20 @@ if (!process.env.DATABASE_URL) {
     process.exit(1);
 }
 
-// ✅ CONFIGURAÇÃO CORS COMPLETA
-const allowedOrigins = [
-  'https://coliseum-7raywxzsu-icaroass-projects.vercel.app',
-  'https://coliseum-of2dynr3p-icaroass-projects.vercel.app',
-  'https://coliseum-adm.vercel.app',
-  'https://coliseum-6hm18oy24-icaroass-projects.vercel.app',
-  'https://coliseum-frontend.vercel.app',
-  'https://coliseum-icaroass-projects.vercel.app',
-  'http://localhost:3000',
-  'http://localhost:5173',
-  'https://coliseum-*.vercel.app',
-  'https://*.vercel.app'
-];
-
+// ✅✅✅ CONFIGURAÇÃO CORS SIMPLIFICADA E CORRIGIDA ✅✅✅
 app.use(cors({
-  origin: function (origin, callback) {
-    if (!origin) return callback(null, true);
-    
-    if (allowedOrigins.some(allowed => origin === allowed) || 
-        origin.endsWith('.vercel.app') ||
-        origin.includes('vercel.app')) {
-      callback(null, true);
-    } else {
-      console.log('🚫 CORS bloqueado para origin:', origin);
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  credentials: true,
+  origin: true, // Permite todas as origens (para desenvolvimento)
+  credentials: true, // Permite envio de cookies e autenticação
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'x-requested-with'],
-  optionsSuccessStatus: 200
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'usuarioId', 'x-user-id'],
+  exposedHeaders: ['Content-Length', 'X-Keep-Alive', 'X-Request-Id']
 }));
 
+// Configuração OPTIONS para todas as rotas
 app.options('*', cors());
+
 app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true }));
 
 // ========== MIDDLEWARE DE CRIPTOGRAFIA ========== //
 app.use(encryptResponseMiddleware);
@@ -80,11 +58,22 @@ app.use('/api/videos', encryptRequestBodyMiddleware);
 app.use('/api/aulas', encryptRequestBodyMiddleware);
 
 // ========== MIDDLEWARE DE LOG E CONEXÃO ========== //
-
 app.use(async (req, res, next) => {
   console.log(`\n=== NOVA REQUISIÇÃO ===`);
   console.log(`[${new Date().toLocaleTimeString()}] ${req.method} ${req.path}`);
-  console.log('📍 Origin:', req.headers.origin);
+  console.log('📍 Origin:', req.headers.origin || 'Sem origin');
+  console.log('🔑 Headers:', req.headers);
+  
+  // Adicionar headers CORS em todas as respostas
+  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, usuarioId');
+  
+  // Para requisições OPTIONS, responder imediatamente
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
   
   try {
     await prisma.$queryRaw`SELECT 1`;
@@ -98,6 +87,7 @@ app.use(async (req, res, next) => {
     } catch (reconnectError) {
       console.error('❌ Falha ao reconectar:', reconnectError.message);
       return res.status(503).json({
+        success: false,
         error: 'Serviço temporariamente indisponível',
         message: 'Problema de conexão com o banco de dados'
       });
@@ -109,7 +99,6 @@ app.use(async (req, res, next) => {
 });
 
 // ========== UTILITÁRIOS ========== //
-
 const validateId = (id) => {
   if (!id) return null;
   const numId = parseInt(id);
@@ -121,6 +110,7 @@ const handleError = (res, error, message = 'Erro interno do servidor') => {
   
   if (error.code === 'P2025') {
     return res.status(404).json({ 
+      success: false,
       error: 'Registro não encontrado',
       details: 'O item solicitado não existe ou já foi removido'
     });
@@ -128,6 +118,7 @@ const handleError = (res, error, message = 'Erro interno do servidor') => {
   
   if (error.code === 'P2002') {
     return res.status(409).json({ 
+      success: false,
       error: 'Conflito de dados',
       details: 'Já existe um registro com esses dados únicos'
     });
@@ -135,6 +126,7 @@ const handleError = (res, error, message = 'Erro interno do servidor') => {
 
   if (error.code === 'P1001') {
     return res.status(503).json({ 
+      success: false,
       error: 'Database não disponível',
       details: 'Não foi possível conectar ao banco de dados'
     });
@@ -142,12 +134,14 @@ const handleError = (res, error, message = 'Erro interno do servidor') => {
   
   if (error.code === 'P1017') {
     return res.status(503).json({ 
+      success: false,
       error: 'Conexão com banco fechada',
       details: 'A conexão com o banco de dados foi fechada'
     });
   }
   
   res.status(500).json({ 
+    success: false,
     error: message,
     details: process.env.NODE_ENV === 'development' ? error.message : 'Erro interno'
   });
@@ -307,49 +301,7 @@ function verificarPermissaoCurso(cursoUsuario, materiaCurso) {
     return resultado;
 }
 
-// ========== CONEXÃO E CONFIGURAÇÃO DO BANCO ========== //
-
-async function testDatabaseConnection() {
-  try {
-    await prisma.$queryRaw`SELECT 1`;
-    console.log('✅ Conexão com banco de dados estabelecida');
-    return true;
-  } catch (error) {
-    console.error('❌ Erro na conexão com banco:', error);
-    return false;
-  }
-}
-
-async function initializeDatabase() {
-  let retries = 5;
-  let connected = false;
-  
-  while (retries > 0 && !connected) {
-    try {
-      console.log(`🔄 Tentando conectar ao banco de dados... (${retries} tentativas restantes)`);
-      await prisma.$queryRaw`SELECT 1`;
-      console.log('✅ Conectado ao banco de dados com sucesso!');
-      connected = true;
-      
-    } catch (error) {
-      console.error(`❌ Falha na conexão com o banco:`, error.message);
-      retries -= 1;
-      
-      if (retries === 0) {
-        console.error('❌ Todas as tentativas de conexão falharam');
-        return false;
-      }
-      
-      console.log('⏳ Aguardando 5 segundos antes da próxima tentativa...');
-      await new Promise(resolve => setTimeout(resolve, 5000));
-    }
-  }
-  
-  return connected;
-}
-
 // ========== ROTAS BÁSICAS ========== //
-
 app.get('/', (req, res) => {
   res.json({
     message: '🚀 API Coliseum Backend - Online',
@@ -363,7 +315,7 @@ app.get('/', (req, res) => {
 
 app.get('/api/health', async (req, res) => {
   try {
-    const dbStatus = await testDatabaseConnection();
+    const dbStatus = await prisma.$queryRaw`SELECT 1`;
     
     const [totalUsuarios, totalVideos, totalCursos, totalDesafios, totalAmizades, totalMensagensChat] = await Promise.all([
       prisma.usuario.count().catch(() => 0),
@@ -375,8 +327,9 @@ app.get('/api/health', async (req, res) => {
     ]);
 
     res.json({ 
+      success: true,
       status: 'online',
-      database: dbStatus ? 'connected' : 'disconnected',
+      database: 'connected',
       uptime: process.uptime(),
       memory: process.memoryUsage(),
       totalUsuarios,
@@ -389,55 +342,14 @@ app.get('/api/health', async (req, res) => {
     });
   } catch (error) {
     res.status(503).json({
+      success: false,
       status: 'error',
       database: 'disconnected',
       error: error.message,
       uptime: process.uptime()
     });
   }
-});
-
-app.get('/api/test-db', async (req, res) => {
-  try {
-    const result = await prisma.$queryRaw`SELECT 1 as test`;
-    res.json({
-      success: true,
-      message: 'Conexão com banco de dados estável',
-      result
-    });
-  } catch (error) {
-    res.status(503).json({
-      success: false,
-      error: 'Falha na conexão com banco',
-      details: error.message
-    });
-  }
-});
-
-// ✅ ROTA DE TESTE DE CRIPTOGRAFIA
-app.get('/api/test-encryption', async (req, res) => {
-  try {
-    const testUrl = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
-    
-    // Testar criptografia
-    const encrypted = encryptionService.encryptYouTubeUrl(testUrl);
-    const decrypted = encryptionService.decryptYouTubeUrl(encrypted);
-    
-    res.json({
-      success: true,
-      original: testUrl,
-      encrypted: encrypted,
-      decrypted: decrypted,
-      match: testUrl === decrypted,
-      algorithm: encryptionService.algorithm
-    });
-  } catch (error) {
-    res.status(500).json({
-      error: 'Erro no teste de criptografia',
-      details: error.message
-    });
-  }
-});
+});;
 
 // ========== SISTEMA DE USUÁRIOS ========== //
 
@@ -2041,13 +1953,17 @@ app.get('/api/cursos/:id', async (req, res) => {
   try {
     const cursoId = validateId(req.params.id);
     if (!cursoId) {
-      return res.status(400).json({ error: 'ID do curso inválido' });
+      return res.status(400).json({ 
+        success: false,
+        error: 'ID do curso inválido' 
+      });
     }
 
-    const { usuarioId } = req.query;
+    // ✅ CORREÇÃO: Obter usuarioId do header ou query
+    const usuarioId = req.headers['usuarioid'] || req.query.usuarioId;
     const usuarioIdValidado = usuarioId ? validateId(usuarioId) : null;
 
-    console.log(`🎯 Buscando curso específico ID: ${cursoId} ${usuarioIdValidado ? 'para usuário ' + usuarioIdValidado : ''}`);
+    console.log(`🎯 Buscando curso ID: ${cursoId} para usuário: ${usuarioIdValidado || 'Não especificado'}`);
 
     const curso = await prisma.curso.findUnique({
       where: { 
@@ -2075,11 +1991,11 @@ app.get('/api/cursos/:id', async (req, res) => {
       });
     }
 
-    // ✅ VALIDAÇÃO DE PERMISSÃO
+    // ✅ VALIDAÇÃO DE PERMISSÃO (se houver usuário)
     if (usuarioIdValidado) {
       const usuario = await prisma.usuario.findUnique({
         where: { id: usuarioIdValidado },
-        select: { curso: true }
+        select: { curso: true, nome: true }
       });
 
       if (usuario && !verificarPermissaoCurso(usuario.curso, curso.materia)) {
@@ -2091,11 +2007,8 @@ app.get('/api/cursos/:id', async (req, res) => {
           materiaCurso: curso.materia
         });
       }
-    }
 
-    // Se houver usuário, buscar progresso
-    let cursoComProgresso = curso;
-    if (usuarioIdValidado) {
+      // Buscar progresso do usuário
       const progressoCurso = await prisma.progressoCurso.findFirst({
         where: {
           usuarioId: usuarioIdValidado,
@@ -2137,20 +2050,32 @@ app.get('/api/cursos/:id', async (req, res) => {
         })
       );
 
-      cursoComProgresso = {
+      const cursoComProgresso = {
         ...curso,
         modulos: modulosComProgresso,
         progresso: progressoCurso?.progresso || 0
       };
+
+      res.json({
+        success: true,
+        curso: cursoComProgresso
+      });
+
+    } else {
+      // Retornar curso sem progresso se não houver usuário
+      res.json({
+        success: true,
+        curso: curso
+      });
     }
 
-    res.json({
-      success: true,
-      curso: cursoComProgresso
-    });
-
   } catch (error) {
-    handleError(res, error, 'Erro ao carregar curso');
+    console.error('❌ Erro ao carregar curso:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Erro ao carregar curso',
+      details: process.env.NODE_ENV === 'development' ? error.message : 'Erro interno'
+    });
   }
 });
 
@@ -2159,13 +2084,17 @@ app.get('/api/cursos/:id/modulos', async (req, res) => {
   try {
     const cursoId = validateId(req.params.id);
     if (!cursoId) {
-      return res.status(400).json({ error: 'ID do curso inválido' });
+      return res.status(400).json({ 
+        success: false,
+        error: 'ID do curso inválido' 
+      });
     }
 
-    const { usuarioId } = req.query;
+    // ✅ CORREÇÃO: Obter usuarioId do header ou query
+    const usuarioId = req.headers['usuarioid'] || req.query.usuarioId;
     const usuarioIdValidado = usuarioId ? validateId(usuarioId) : null;
 
-    console.log(`📚 Buscando módulos do curso ${cursoId} ${usuarioIdValidado ? 'com progresso do usuário ' + usuarioIdValidado : ''}`);
+    console.log(`📚 Buscando módulos do curso ${cursoId} para usuário: ${usuarioIdValidado || 'Não especificado'}`);
 
     const modulos = await prisma.modulo.findMany({
       where: {
@@ -2234,23 +2163,30 @@ app.get('/api/cursos/:id/modulos', async (req, res) => {
       modulos: modulosComProgresso
     });
   } catch (error) {
-    handleError(res, error, 'Erro ao carregar módulos do curso');
+    console.error('❌ Erro ao carregar módulos:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Erro ao carregar módulos',
+      details: process.env.NODE_ENV === 'development' ? error.message : 'Erro interno'
+    });
   }
 });
 
-// ✅ GET AULA POR ID
-// ✅ GET AULA POR ID (com descriptografia)
 app.get('/api/aulas/:id', async (req, res) => {
   try {
     const aulaId = validateId(req.params.id);
     if (!aulaId) {
-      return res.status(400).json({ error: 'ID da aula inválido' });
+      return res.status(400).json({ 
+        success: false,
+        error: 'ID da aula inválido' 
+      });
     }
 
-    const { usuarioId } = req.query;
+    // ✅ CORREÇÃO: Obter usuarioId do header ou query
+    const usuarioId = req.headers['usuarioid'] || req.query.usuarioId;
     const usuarioIdValidado = usuarioId ? validateId(usuarioId) : null;
 
-    console.log(`🎓 Buscando aula ${aulaId} ${usuarioIdValidado ? 'para usuário ' + usuarioIdValidado : ''}`);
+    console.log(`🎓 Buscando aula ${aulaId} para usuário: ${usuarioIdValidado || 'Não especificado'}`);
 
     const aula = await prisma.aula.findUnique({
       where: { 
@@ -2306,7 +2242,12 @@ app.get('/api/aulas/:id', async (req, res) => {
       aula: aulaDescriptografada
     });
   } catch (error) {
-    handleError(res, error, 'Erro ao carregar aula');
+    console.error('❌ Erro ao carregar aula:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Erro ao carregar aula',
+      details: process.env.NODE_ENV === 'development' ? error.message : 'Erro interno'
+    });
   }
 });
 
@@ -2383,6 +2324,7 @@ app.post('/api/progresso/aula', async (req, res) => {
 
     if (!usuarioId || !aulaId) {
       return res.status(400).json({ 
+        success: false,
         error: 'Dados incompletos',
         details: 'Forneça usuarioId e aulaId'
       });
@@ -2402,7 +2344,10 @@ app.post('/api/progresso/aula', async (req, res) => {
     }
 
     const aula = await prisma.aula.findUnique({
-      where: { id: parseInt(aulaId) }
+      where: { id: parseInt(aulaId) },
+      include: {
+        modulo: true
+      }
     });
 
     if (!aula) {
@@ -2447,7 +2392,9 @@ app.post('/api/progresso/aula', async (req, res) => {
     console.log(`✅ Progresso salvo: ${progresso.id}`);
 
     // Atualizar progresso do módulo e curso
-    await atualizarProgressoModulo(parseInt(usuarioId), aula.moduloId);
+    if (aula.modulo) {
+      await atualizarProgressoModulo(parseInt(usuarioId), aula.modulo.id);
+    }
 
     res.json({
       success: true,
@@ -2456,7 +2403,12 @@ app.post('/api/progresso/aula', async (req, res) => {
     });
 
   } catch (error) {
-    handleError(res, error, 'Erro ao salvar progresso da aula');
+    console.error('❌ Erro ao salvar progresso:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Erro ao salvar progresso',
+      details: process.env.NODE_ENV === 'development' ? error.message : 'Erro interno'
+    });
   }
 });
 
@@ -3456,19 +3408,19 @@ app.get('/api/usuarios/:usuarioId/historico-desafios', async (req, res) => {
   }
 });
 
-// ========== MANUSEIO DE ERROS GLOBAL ========== //
-
 app.use((error, req, res, next) => {
   console.error('❌ Erro global não tratado:', error);
   
   if (error.type === 'entity.parse.failed') {
     return res.status(400).json({
+      success: false,
       error: 'JSON inválido',
       details: 'O corpo da requisição contém JSON malformado'
     });
   }
   
   res.status(500).json({
+    success: false,
     error: 'Erro interno do servidor',
     message: process.env.NODE_ENV === 'development' ? error.message : 'Erro interno'
   });
@@ -3476,6 +3428,7 @@ app.use((error, req, res, next) => {
 
 app.use('*', (req, res) => {
   res.status(404).json({
+    success: false,
     error: 'Rota não encontrada',
     path: req.originalUrl,
     method: req.method
@@ -3486,26 +3439,25 @@ app.use('*', (req, res) => {
 process.on('uncaughtException', (error) => {
     console.error('❌ UNCAUGHT EXCEPTION:', error.message);
     console.error('Stack:', error.stack);
-    process.exit(1);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
     console.error('❌ UNHANDLED REJECTION:');
     console.error('Reason:', reason);
-    process.exit(1);
 });
 
 // ========== INICIALIZAÇÃO DO SERVIDOR ========== //
-
 async function startServer() {
     try {
         console.log('🚀 Iniciando servidor Coliseum API...');
         
-        const dbConnected = await initializeDatabase();
-        
-        if (!dbConnected) {
-            console.error('❌ Não foi possível conectar ao banco de dados. Encerrando...');
-            process.exit(1);
+        // Testar conexão com banco
+        try {
+          await prisma.$connect();
+          console.log('✅ Conectado ao banco de dados com sucesso!');
+        } catch (dbError) {
+          console.error('❌ Não foi possível conectar ao banco de dados:', dbError.message);
+          console.log('⚠️ Continuando sem banco de dados...');
         }
         
         const server = app.listen(PORT, '0.0.0.0', () => {
@@ -3514,16 +3466,9 @@ async function startServer() {
             console.log(`🌐 Production: https://coliseum-api.onrender.com`);
             console.log(`\n✨ API Coliseum totalmente operacional!`);
             console.log(`⏰ Iniciado em: ${new Date().toISOString()}`);
-            console.log(`\n🎯 Funcionalidades disponíveis:`);
-            console.log(`   👥 Sistema de Usuários`);
-            console.log(`   🤝 Sistema de Amigos`);
-            console.log(`   🎯 Sistema de Desafios`);
-            console.log(`   📚 Sistema de Cursos`);
-            console.log(`   📹 Sistema de Vídeos`);
-            console.log(`   💬 Sistema de Chat`);
-            console.log(`   📊 Sistema de Progresso`);
         });
         
+        // Keep-alive para conexão
         server.keepAliveTimeout = 120000;
         server.headersTimeout = 120000;
         
@@ -3532,31 +3477,23 @@ async function startServer() {
             await prisma.$queryRaw`SELECT 1`;
             console.log('🔄 Keep-alive: Conexão com banco mantida');
           } catch (error) {
-            console.warn('⚠️ Keep-alive falhou, tentando reconectar...');
-            try {
-              await prisma.$disconnect();
-              await prisma.$connect();
-              console.log('✅ Conexão restabelecida via keep-alive');
-            } catch (reconnectError) {
-              console.error('❌ Falha ao reconectar no keep-alive:', reconnectError.message);
-            }
+            console.warn('⚠️ Keep-alive falhou:', error.message);
           }
         }, 30000);
         
         server.on('close', () => {
           clearInterval(keepAliveInterval);
+          prisma.$disconnect();
         });
         
         return server;
         
     } catch (error) {
         console.error('❌ Erro ao iniciar servidor:', error);
-        console.error('Stack:', error.stack);
         process.exit(1);
     }
 }
 
-// Graceful shutdown
 process.on('SIGINT', async () => {
     console.log('\n🛑 Desligando servidor graciosamente...');
     await prisma.$disconnect();
@@ -3570,17 +3507,4 @@ process.on('SIGTERM', async () => {
     process.exit(0);
 });
 
-// Inicia o servidor
 startServer();
-
-
-
-
-
-
-
-
-
-
-
-
