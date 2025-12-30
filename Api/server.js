@@ -1814,140 +1814,380 @@ app.get('/api/cursos', async (req, res) => {
   }
 });
 
-// ✅ POST CRIAR CURSO
+// ✅ POST CRIAR CURSO - VERSÃO COMPLETA E OTIMIZADA
 app.post('/api/cursos', async (req, res) => {
+  let cursoBase = null;
+  
   try {
-    console.log('📝 Recebendo requisição POST /api/cursos');
+    console.log('📝 ========== INÍCIO DA CRIAÇÃO DO CURSO ==========');
     
-    const { titulo, descricao, materia, categoria, nivel, duracao, imagem, ativo = true, modulos } = req.body;
-
-    const requiredFields = ['titulo', 'materia', 'categoria', 'nivel', 'duracao'];
-    const missingFields = requiredFields.filter(field => !req.body[field]);
-
-    if (missingFields.length > 0) {
+    // 1. VALIDAÇÃO INICIAL
+    if (!req.body || Object.keys(req.body).length === 0) {
+      console.log('❌ Body da requisição vazio');
       return res.status(400).json({ 
-        error: 'Dados incompletos',
-        missingFields: missingFields,
-        message: 'Campos obrigatórios faltando'
+        success: false,
+        error: 'Body da requisição vazio ou inválido'
       });
     }
 
-    console.log('📝 Dados válidados, criando curso...');
+    console.log('📦 Headers recebidos:', req.headers['content-type']);
+    console.log('📦 Body tamanho:', JSON.stringify(req.body).length, 'caracteres');
 
+    // 2. EXTRAÇÃO DOS DADOS
+    const { 
+      titulo, 
+      descricao, 
+      materia, 
+      categoria, 
+      nivel, 
+      duracao, 
+      imagem, 
+      ativo = true, 
+      modulos = [] 
+    } = req.body;
+
+    // 3. LOG DOS DADOS RECEBIDOS (parcial para debug)
+    console.log('📋 Dados recebidos:', {
+      titulo: titulo ? titulo.substring(0, 30) + (titulo.length > 30 ? '...' : '') : 'N/A',
+      materia,
+      categoria,
+      nivel,
+      duracao,
+      temModulos: Array.isArray(modulos) ? modulos.length : 'Não é array'
+    });
+
+    // 4. VALIDAÇÃO DOS CAMPOS OBRIGATÓRIOS
+    const requiredFields = ['titulo', 'materia', 'categoria', 'nivel', 'duracao'];
+    const validationErrors = [];
+    
+    requiredFields.forEach(field => {
+      const value = req.body[field];
+      if (!value || value.toString().trim() === '') {
+        validationErrors.push(`${field} é obrigatório`);
+      }
+    });
+
+    if (validationErrors.length > 0) {
+      console.log('❌ Erros de validação:', validationErrors);
+      return res.status(400).json({
+        success: false,
+        error: 'Campos obrigatórios faltando',
+        details: validationErrors
+      });
+    }
+
+    // 5. VALIDAÇÃO DE TIPOS
+    if (isNaN(parseInt(duracao)) || parseInt(duracao) <= 0) {
+      console.log('❌ Duração inválida:', duracao);
+      return res.status(400).json({
+        success: false,
+        error: 'Duração inválida',
+        details: 'A duração deve ser um número positivo'
+      });
+    }
+
+    // 6. VALIDAÇÃO DE MÓDULOS
+    if (modulos && !Array.isArray(modulos)) {
+      console.log('❌ Módulos não são um array:', typeof modulos);
+      return res.status(400).json({
+        success: false,
+        error: 'Formato inválido',
+        details: 'Os módulos devem ser um array'
+      });
+    }
+
+    // Validação detalhada dos módulos e aulas
+    if (Array.isArray(modulos) && modulos.length > 0) {
+      for (let i = 0; i < modulos.length; i++) {
+        const modulo = modulos[i];
+        
+        if (!modulo.titulo || modulo.titulo.trim() === '') {
+          console.log(`❌ Módulo ${i + 1} sem título`);
+          return res.status(400).json({
+            success: false,
+            error: 'Módulo sem título',
+            details: `O módulo ${i + 1} precisa de um título`
+          });
+        }
+
+        // Validação das aulas
+        if (modulo.aulas && Array.isArray(modulo.aulas)) {
+          if (modulo.aulas.length === 0) {
+            console.log(`⚠️ Módulo "${modulo.titulo}" tem array de aulas vazio`);
+          }
+          
+          for (let j = 0; j < modulo.aulas.length; j++) {
+            const aula = modulo.aulas[j];
+            
+            if (!aula.titulo || aula.titulo.trim() === '') {
+              console.log(`❌ Aula ${j + 1} do módulo ${i + 1} sem título`);
+              return res.status(400).json({
+                success: false,
+                error: 'Aula sem título',
+                details: `A aula ${j + 1} do módulo ${i + 1} precisa de um título`
+              });
+            }
+            
+            if (aula.duracao && (isNaN(parseInt(aula.duracao)) || parseInt(aula.duracao) <= 0)) {
+              console.log(`❌ Duração inválida na aula ${j + 1}:`, aula.duracao);
+              return res.status(400).json({
+                success: false,
+                error: 'Duração de aula inválida',
+                details: `A aula "${aula.titulo}" tem duração inválida`
+              });
+            }
+          }
+        }
+      }
+    }
+
+    console.log('✅ Validação concluída com sucesso!');
+
+    // 7. CRIAÇÃO DO CURSO (USANDO TRANSACTION PARA INTEGRIDADE)
     const novoCurso = await prisma.$transaction(async (tx) => {
-      const curso = await tx.curso.create({
-        data: {
+      try {
+        // 7.1. Criar o curso base
+        console.log('🛠️ Criando curso base...');
+        
+        const cursoData = {
           titulo: titulo.trim(),
           descricao: descricao?.trim() || '',
           materia: materia.trim(),
           categoria: categoria.trim(),
           nivel: nivel.trim(),
           duracao: parseInt(duracao),
-          imagem: imagem?.trim() || null,
           ativo: ativo,
           criadoEm: new Date(),
           atualizadoEm: new Date()
+        };
+
+        // Adicionar imagem apenas se fornecida
+        if (imagem && imagem.trim() !== '') {
+          cursoData.imagem = imagem.trim();
         }
-      });
 
-      console.log(`✅ Curso criado com ID: ${curso.id}`);
+        const curso = await tx.curso.create({
+          data: cursoData
+        });
 
-      if (modulos && Array.isArray(modulos) && modulos.length > 0) {
-        for (let i = 0; i < modulos.length; i++) {
-          const moduloData = modulos[i];
+        cursoBase = curso; // Salvar referência para possível cleanup
+        console.log(`✅ Curso base criado - ID: ${curso.id}, Título: "${curso.titulo}"`);
+
+        // 7.2. Criar módulos e aulas (se existirem)
+        if (Array.isArray(modulos) && modulos.length > 0) {
+          console.log(`📚 Criando ${modulos.length} módulo(s)...`);
           
-          if (!moduloData.titulo || moduloData.titulo.trim() === '') {
-            throw new Error(`Módulo ${i + 1} não tem título`);
-          }
-
-          const modulo = await tx.modulo.create({
-            data: {
-              titulo: moduloData.titulo.trim(),
-              descricao: moduloData.descricao?.trim() || '',
-              ordem: moduloData.ordem || (i + 1),
-              cursoId: curso.id,
-              ativo: true,
-              criadoEm: new Date(),
-              atualizadoEm: new Date()
-            }
-          });
-
-          if (moduloData.aulas && Array.isArray(moduloData.aulas) && moduloData.aulas.length > 0) {
-            for (let j = 0; j < moduloData.aulas.length; j++) {
-              const aulaData = moduloData.aulas[j];
-              
-              if (!aulaData.titulo || aulaData.titulo.trim() === '') {
-                throw new Error(`Módulo ${i + 1}, Aula ${j + 1} não tem título`);
+          const modulosCriados = [];
+          
+          for (let i = 0; i < modulos.length; i++) {
+            const moduloData = modulos[i];
+            
+            console.log(`🛠️ Criando módulo ${i + 1}: "${moduloData.titulo}"`);
+            
+            const modulo = await tx.modulo.create({
+              data: {
+                titulo: moduloData.titulo.trim(),
+                descricao: moduloData.descricao?.trim() || '',
+                ordem: moduloData.ordem || (i + 1),
+                cursoId: curso.id,
+                ativo: true,
+                criadoEm: new Date(),
+                atualizadoEm: new Date()
               }
+            });
 
-              await tx.aula.create({
-                data: {
+            modulosCriados.push(modulo);
+            console.log(`✅ Módulo criado - ID: ${modulo.id}`);
+
+            // 7.3. Criar aulas do módulo (se existirem)
+            if (moduloData.aulas && Array.isArray(moduloData.aulas) && moduloData.aulas.length > 0) {
+              console.log(`📖 Criando ${moduloData.aulas.length} aula(s) para o módulo...`);
+              
+              const aulasPromises = moduloData.aulas.map(async (aulaData, j) => {
+                const aula = {
                   titulo: aulaData.titulo.trim(),
                   descricao: aulaData.descricao?.trim() || '',
                   conteudo: aulaData.conteudo?.trim() || '',
-                  videoUrl: aulaData.videoUrl?.trim() || null,
                   duracao: parseInt(aulaData.duracao) || 15,
                   ordem: aulaData.ordem || (j + 1),
                   moduloId: modulo.id,
                   ativo: true,
                   criadoEm: new Date(),
                   atualizadoEm: new Date()
+                };
+
+                // Adicionar videoUrl apenas se fornecida
+                if (aulaData.videoUrl && aulaData.videoUrl.trim() !== '') {
+                  aula.videoUrl = aulaData.videoUrl.trim();
                 }
+
+                return tx.aula.create({ data: aula });
               });
+
+              const aulasCriadas = await Promise.all(aulasPromises);
+              console.log(`✅ ${aulasCriadas.length} aula(s) criada(s) para o módulo "${modulo.titulo}"`);
+            } else {
+              console.log(`⚠️ Módulo "${modulo.titulo}" criado sem aulas`);
             }
-            console.log(`✅ ${moduloData.aulas.length} aulas criadas para módulo ${i + 1}`);
           }
+          
+          console.log(`🎉 ${modulosCriados.length} módulo(s) criado(s) com sucesso!`);
+        } else {
+          console.log('ℹ️ Curso criado sem módulos');
         }
 
-        console.log(`✅ ${modulos.length} módulos criados`);
+        // 7.4. Buscar curso completo com relacionamentos
+        console.log('🔍 Buscando curso completo com relacionamentos...');
+        
+        const cursoCompleto = await tx.curso.findUnique({
+          where: { id: curso.id },
+          include: {
+            modulos: {
+              include: { 
+                aulas: {
+                  orderBy: { ordem: 'asc' }
+                }
+              },
+              orderBy: { ordem: 'asc' }
+            }
+          }
+        });
+
+        return cursoCompleto;
+
+      } catch (transactionError) {
+        console.error('❌ ERRO NA TRANSAÇÃO:', transactionError.message);
+        console.error('Código do erro:', transactionError.code);
+        throw transactionError;
       }
-
-      return await tx.curso.findUnique({
-        where: { id: curso.id },
-        include: {
-          modulos: {
-            include: { 
-              aulas: {
-                orderBy: { ordem: 'asc' }
-              }
-            },
-            orderBy: { ordem: 'asc' }
-          }
-        }
-      });
+    }, {
+      maxWait: 10000, // 10 segundos
+      timeout: 30000  // 30 segundos
     });
 
-    console.log('🎉 Curso criado com sucesso!');
+    // 8. RESPOSTA DE SUCESSO
+    console.log('🎉 ========== CURSO CRIADO COM SUCESSO! ==========');
+    console.log(`📊 Resumo do curso criado:`);
+    console.log(`   • ID: ${novoCurso.id}`);
+    console.log(`   • Título: "${novoCurso.titulo}"`);
+    console.log(`   • Matéria: ${novoCurso.materia}`);
+    console.log(`   • Categoria: ${novoCurso.categoria}`);
+    console.log(`   • Módulos: ${novoCurso.modulos?.length || 0}`);
+    
+    if (novoCurso.modulos && novoCurso.modulos.length > 0) {
+      novoCurso.modulos.forEach((modulo, index) => {
+        console.log(`     Módulo ${index + 1}: "${modulo.titulo}" (${modulo.aulas?.length || 0} aulas)`);
+      });
+    }
 
     res.status(201).json({
       success: true,
       message: 'Curso criado com sucesso!',
-      curso: novoCurso
+      curso: novoCurso,
+      metadata: {
+        id: novoCurso.id,
+        titulo: novoCurso.titulo,
+        totalModulos: novoCurso.modulos?.length || 0,
+        totalAulas: novoCurso.modulos?.reduce((sum, mod) => sum + (mod.aulas?.length || 0), 0) || 0,
+        criadoEm: novoCurso.criadoEm
+      }
     });
 
   } catch (error) {
-    console.error('❌ Erro ao criar curso:', error);
+    console.error('\n❌ ========== ERRO AO CRIAR CURSO ==========');
+    console.error('📌 Tipo do erro:', error.name);
+    console.error('📌 Mensagem:', error.message);
+    console.error('📌 Código do Prisma:', error.code);
     
-    if (error.code === 'P2003') {
-      return res.status(400).json({
-        error: 'Erro de chave estrangeira',
-        details: 'O curso ou módulo relacionado não existe'
-      });
+    if (error.meta) {
+      console.error('📌 Meta do erro:', error.meta);
     }
     
-    if (error.code === 'P2002') {
-      return res.status(409).json({
-        error: 'Conflito de dados',
-        details: 'Já existe um curso com esses dados'
-      });
+    if (error.stack) {
+      console.error('📌 Stack trace (primeiras 5 linhas):');
+      console.error(error.stack.split('\n').slice(0, 5).join('\n'));
     }
-    
+
+    // 9. CLEANUP EM CASO DE ERRO
+    if (cursoBase) {
+      console.log('🔄 Tentando fazer cleanup do curso criado parcialmente...');
+      try {
+        await prisma.curso.delete({
+          where: { id: cursoBase.id }
+        });
+        console.log('✅ Cleanup realizado: curso removido');
+      } catch (cleanupError) {
+        console.error('❌ Erro no cleanup:', cleanupError.message);
+      }
+    }
+
+    // 10. TRATAMENTO ESPECÍFICO DE ERROS DO PRISMA
+    if (error.code) {
+      switch (error.code) {
+        case 'P2002':
+          return res.status(409).json({
+            success: false,
+            error: 'Conflito de dados',
+            details: 'Já existe um curso com dados semelhantes',
+            code: error.code,
+            meta: error.meta
+          });
+          
+        case 'P2003':
+          return res.status(400).json({
+            success: false,
+            error: 'Erro de referência',
+            details: 'Problema com relacionamento de dados',
+            code: error.code,
+            meta: error.meta
+          });
+          
+        case 'P2025':
+          return res.status(404).json({
+            success: false,
+            error: 'Registro não encontrado',
+            details: 'O registro referenciado não existe',
+            code: error.code
+          });
+          
+        case 'P1017':
+          return res.status(503).json({
+            success: false,
+            error: 'Conexão com banco perdida',
+            details: 'Tente novamente em alguns instantes',
+            code: error.code
+          });
+          
+        case 'P1012':
+          return res.status(400).json({
+            success: false,
+            error: 'Schema inválido',
+            details: 'Problema na estrutura dos dados',
+            code: error.code,
+            meta: error.meta
+          });
+      }
+    }
+
+    // 11. ERRO GENÉRICO
+    const errorDetails = process.env.NODE_ENV === 'development' 
+      ? {
+          message: error.message,
+          code: error.code,
+          stack: error.stack?.split('\n').slice(0, 3).join('\n')
+        }
+      : 'Erro interno do servidor';
+
     res.status(500).json({
+      success: false,
       error: 'Erro ao criar curso',
-      details: process.env.NODE_ENV === 'development' ? error.message : 'Erro interno'
+      details: errorDetails,
+      timestamp: new Date().toISOString()
     });
+  } finally {
+    console.log('🏁 ========== FIM DO PROCESSAMENTO ==========\n');
   }
-}); 
+});
 
 app.get('/api/cursos/:id', async (req, res) => {
   try {
@@ -3508,3 +3748,4 @@ process.on('SIGTERM', async () => {
 });
 
 startServer();
+
