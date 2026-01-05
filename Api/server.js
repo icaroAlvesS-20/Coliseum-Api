@@ -2172,182 +2172,189 @@ app.get('/api/aulas/:id', async (req, res) => {
 app.put('/api/cursos/:id', async (req, res) => {
   try {
     const cursoId = validateId(req.params.id);
-    if (!cursoId) return res.status(400).json({ error: 'ID do curso inválido' });
+    if (!cursoId) return res.status(400).json({ 
+      success: false,
+      error: 'ID do curso inválido' 
+    });
 
-    console.log(`✏️ Atualizando curso ID: ${cursoId}`);
-    console.log('📦 Dados recebidos:', Object.keys(req.body));
+    console.log(`✏️ EDITANDO curso ID: ${cursoId}`);
+    console.log('📦 Dados recebidos para edição:', {
+      titulo: req.body.titulo ? req.body.titulo.substring(0, 30) + '...' : 'N/A',
+      materia: req.body.materia || 'N/A',
+      totalModulos: req.body.modulos ? req.body.modulos.length : 0
+    });
 
-    const { titulo, descricao, materia, categoria, nivel, duracao, imagem, ativo, modulos } = req.body;
-    
+    const { 
+      titulo, 
+      descricao, 
+      materia, 
+      categoria, 
+      nivel, 
+      duracao, 
+      imagem, 
+      ativo,
+      modulos 
+    } = req.body;
+
+    // VALIDAÇÃO BÁSICA
+    if (!titulo || titulo.trim() === '') {
+      return res.status(400).json({
+        success: false,
+        error: 'Título obrigatório',
+        details: 'O curso precisa de um título'
+      });
+    }
+
+    if (!modulos || !Array.isArray(modulos) || modulos.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Módulos obrigatórios',
+        details: 'O curso deve ter pelo menos um módulo'
+      });
+    }
+
+    // Verificar se o curso existe
     const cursoExistente = await prisma.curso.findUnique({ 
-      where: { id: cursoId },
-      include: { 
-        modulos: {
-          include: {
-            aulas: true
-          }
-        }
-      }
+      where: { id: cursoId }
     });
     
-    if (!cursoExistente) return res.status(404).json({ error: 'Curso não encontrado' });
+    if (!cursoExistente) {
+      return res.status(404).json({ 
+        success: false,
+        error: 'Curso não encontrado' 
+      });
+    }
 
-    // ✅ CORREÇÃO: Preparar dados de atualização
-    const updateData = { 
-      atualizadoEm: new Date()
-    };
-    
-    if (titulo !== undefined) updateData.titulo = titulo.trim();
-    if (descricao !== undefined) updateData.descricao = descricao.trim();
-    if (materia !== undefined) updateData.materia = materia.trim();
-    if (categoria !== undefined) updateData.categoria = categoria.trim();
-    if (nivel !== undefined) updateData.nivel = nivel.trim();
-    if (duracao !== undefined) updateData.duracao = parseInt(duracao);
-    if (imagem !== undefined) updateData.imagem = imagem?.trim() || null;
-    if (ativo !== undefined) updateData.ativo = ativo;
+    // VALIDAR CADA MÓDULO
+    for (let i = 0; i < modulos.length; i++) {
+      const modulo = modulos[i];
+      
+      if (!modulo.titulo || modulo.titulo.trim() === '') {
+        return res.status(400).json({
+          success: false,
+          error: 'Módulo sem título',
+          details: `O módulo ${i + 1} precisa de um título`
+        });
+      }
 
-    console.log(`📝 Dados para atualização:`, updateData);
+      if (!modulo.aulas || !Array.isArray(modulo.aulas) || modulo.aulas.length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Módulo sem aulas',
+          details: `O módulo "${modulo.titulo}" deve ter pelo menos uma aula`
+        });
+      }
 
-    // ✅ CORREÇÃO: Usar transaction para atualizar curso e módulos
+      // Validar cada aula
+      for (let j = 0; j < modulo.aulas.length; j++) {
+        const aula = modulo.aulas[j];
+        
+        if (!aula.titulo || aula.titulo.trim() === '') {
+          return res.status(400).json({
+            success: false,
+            error: 'Aula sem título',
+            details: `Aula ${j + 1} do módulo "${modulo.titulo}" precisa de um título`
+          });
+        }
+      }
+    }
+
+    console.log('✅ Validação passada. Atualizando curso...');
+
+    // ATUALIZAR CURSO COM MÓDULOS E AULAS (USANDO TRANSACTION)
     const cursoAtualizado = await prisma.$transaction(async (tx) => {
-      // 1. Atualizar curso
+      // 1. Atualizar informações básicas do curso
+      const dadosAtualizacao = {
+        titulo: titulo.trim(),
+        descricao: descricao ? descricao.trim() : '',
+        materia: materia ? materia.trim() : cursoExistente.materia,
+        categoria: categoria ? categoria.trim() : cursoExistente.categoria,
+        nivel: nivel ? nivel.trim() : cursoExistente.nivel,
+        duracao: duracao ? parseInt(duracao) : cursoExistente.duracao,
+        imagem: imagem ? imagem.trim() : cursoExistente.imagem,
+        ativo: ativo !== undefined ? ativo : cursoExistente.ativo,
+        atualizadoEm: new Date()
+      };
+
+      console.log('📝 Dados do curso para atualização:', dadosAtualizacao);
+
       const curso = await tx.curso.update({
         where: { id: cursoId },
-        data: updateData
+        data: dadosAtualizacao
       });
 
       console.log(`✅ Curso base atualizado: ${curso.titulo}`);
 
-      // 2. Se houver módulos na requisição, atualizá-los
-      if (modulos && Array.isArray(modulos)) {
-        console.log(`🔄 Atualizando ${modulos.length} módulo(s)...`);
-        
-        // ✅ CORREÇÃO IMPORTANTE: Manter módulos existentes que não estão sendo editados
-        // Coletar IDs dos módulos novos (se tiverem ID, estão sendo editados)
-        const modulosEditadosIds = modulos
-          .filter(mod => mod.id)
-          .map(mod => parseInt(mod.id))
-          .filter(id => !isNaN(id));
-        
-        // Desativar apenas módulos antigos que NÃO estão na lista de edição
-        if (modulosEditadosIds.length > 0) {
-          await tx.modulo.updateMany({
-            where: { 
-              cursoId: cursoId,
-              id: { notIn: modulosEditadosIds }
-            },
-            data: { ativo: false }
-          });
-        } else {
-          // Se não há IDs, desativar todos os módulos antigos
-          await tx.modulo.updateMany({
-            where: { cursoId: cursoId },
-            data: { ativo: false }
-          });
-        }
+      // 2. REMOVER TODOS OS MÓDULOS E AULAS EXISTENTES (simples e funciona)
+      // Primeiro, desativar todas as aulas dos módulos deste curso
+      const modulosDoCurso = await tx.modulo.findMany({
+        where: { cursoId: cursoId },
+        select: { id: true }
+      });
 
-        // Criar ou atualizar módulos
-        for (let i = 0; i < modulos.length; i++) {
-          const moduloData = modulos[i];
-          let modulo;
-          
-          // Se o módulo já tem ID, atualizar
-          if (moduloData.id && !isNaN(parseInt(moduloData.id))) {
-            modulo = await tx.modulo.update({
-              where: { id: parseInt(moduloData.id) },
+      const moduloIds = modulosDoCurso.map(m => m.id);
+      
+      if (moduloIds.length > 0) {
+        await tx.aula.updateMany({
+          where: { moduloId: { in: moduloIds } },
+          data: { ativo: false }
+        });
+
+        // Desativar os módulos
+        await tx.modulo.updateMany({
+          where: { id: { in: moduloIds } },
+          data: { ativo: false }
+        });
+      }
+
+      console.log(`🗑️ ${moduloIds.length} módulos antigos desativados`);
+
+      // 3. CRIAR NOVOS MÓDULOS E AULAS
+      console.log(`🔄 Criando ${modulos.length} novos módulos...`);
+      
+      for (let i = 0; i < modulos.length; i++) {
+        const moduloData = modulos[i];
+        
+        const novoModulo = await tx.modulo.create({
+          data: {
+            titulo: moduloData.titulo.trim(),
+            descricao: moduloData.descricao ? moduloData.descricao.trim() : '',
+            ordem: moduloData.ordem || (i + 1),
+            cursoId: curso.id,
+            ativo: true,
+            criadoEm: new Date(),
+            atualizadoEm: new Date()
+          }
+        });
+
+        console.log(`✅ Módulo criado: ${novoModulo.titulo} (ID: ${novoModulo.id})`);
+
+        // Criar aulas do módulo
+        if (moduloData.aulas && Array.isArray(moduloData.aulas)) {
+          for (let j = 0; j < moduloData.aulas.length; j++) {
+            const aulaData = moduloData.aulas[j];
+            
+            await tx.aula.create({
               data: {
-                titulo: moduloData.titulo.trim(),
-                descricao: moduloData.descricao?.trim() || '',
-                ordem: moduloData.ordem || (i + 1),
-                ativo: true,
-                atualizadoEm: new Date()
-              }
-            });
-            console.log(`✅ Módulo atualizado: ${modulo.id} - ${modulo.titulo}`);
-          } else {
-            // Criar novo módulo
-            modulo = await tx.modulo.create({
-              data: {
-                titulo: moduloData.titulo.trim(),
-                descricao: moduloData.descricao?.trim() || '',
-                ordem: moduloData.ordem || (i + 1),
-                cursoId: curso.id,
+                titulo: aulaData.titulo.trim(),
+                descricao: aulaData.descricao ? aulaData.descricao.trim() : '',
+                conteudo: aulaData.conteudo ? aulaData.conteudo.trim() : '',
+                duracao: parseInt(aulaData.duracao) || 15,
+                ordem: aulaData.ordem || (j + 1),
+                moduloId: novoModulo.id,
+                videoUrl: aulaData.videoUrl ? aulaData.videoUrl.trim() : null,
                 ativo: true,
                 criadoEm: new Date(),
                 atualizadoEm: new Date()
               }
             });
-            console.log(`✅ Novo módulo criado: ${modulo.id} - ${modulo.titulo}`);
           }
-
-          // Criar ou atualizar aulas do módulo
-          if (moduloData.aulas && Array.isArray(moduloData.aulas)) {
-            // Coletar IDs das aulas existentes
-            const aulasEditadasIds = moduloData.aulas
-              .filter(aula => aula.id)
-              .map(aula => parseInt(aula.id))
-              .filter(id => !isNaN(id));
-            
-            // Desativar aulas antigas que não estão sendo editadas
-            if (aulasEditadasIds.length > 0) {
-              await tx.aula.updateMany({
-                where: { 
-                  moduloId: modulo.id,
-                  id: { notIn: aulasEditadasIds }
-                },
-                data: { ativo: false }
-              });
-            } else {
-              // Se não há IDs, desativar todas as aulas antigas
-              await tx.aula.updateMany({
-                where: { moduloId: modulo.id },
-                data: { ativo: false }
-              });
-            }
-            
-            for (let j = 0; j < moduloData.aulas.length; j++) {
-              const aulaData = moduloData.aulas[j];
-              
-              // Se a aula já tem ID, atualizar
-              if (aulaData.id && !isNaN(parseInt(aulaData.id))) {
-                await tx.aula.update({
-                  where: { id: parseInt(aulaData.id) },
-                  data: {
-                    titulo: aulaData.titulo.trim(),
-                    descricao: aulaData.descricao?.trim() || '',
-                    conteudo: aulaData.conteudo?.trim() || '',
-                    duracao: parseInt(aulaData.duracao) || 15,
-                    ordem: aulaData.ordem || (j + 1),
-                    videoUrl: aulaData.videoUrl?.trim() || null,
-                    ativo: true,
-                    atualizadoEm: new Date()
-                  }
-                });
-              } else {
-                // Criar nova aula
-                await tx.aula.create({
-                  data: {
-                    titulo: aulaData.titulo.trim(),
-                    descricao: aulaData.descricao?.trim() || '',
-                    conteudo: aulaData.conteudo?.trim() || '',
-                    duracao: parseInt(aulaData.duracao) || 15,
-                    ordem: aulaData.ordem || (j + 1),
-                    moduloId: modulo.id,
-                    videoUrl: aulaData.videoUrl?.trim() || null,
-                    ativo: true,
-                    criadoEm: new Date(),
-                    atualizadoEm: new Date()
-                  }
-                });
-              }
-            }
-            console.log(`✅ ${moduloData.aulas.length} aulas processadas para módulo ${modulo.titulo}`);
-          }
+          console.log(`✅ ${moduloData.aulas.length} aulas criadas para módulo ${novoModulo.titulo}`);
         }
       }
 
-      // 3. Retornar curso completo
-      return await tx.curso.findUnique({
+      // 4. Retornar curso completo atualizado
+      const cursoCompleto = await tx.curso.findUnique({
         where: { id: cursoId },
         include: {
           modulos: {
@@ -2362,11 +2369,13 @@ app.put('/api/cursos/:id', async (req, res) => {
           }
         }
       });
-    });
 
-    console.log(`🎉 Curso atualizado com sucesso! ID: ${cursoAtualizado.id}`);
-    console.log(`📊 Módulos: ${cursoAtualizado.modulos?.length || 0}`);
-    console.log(`📊 Total de aulas: ${cursoAtualizado.modulos?.reduce((sum, mod) => sum + (mod.aulas?.length || 0), 0) || 0}`);
+      console.log(`🎉 Curso editado com sucesso! ID: ${cursoCompleto.id}`);
+      console.log(`📊 Módulos ativos: ${cursoCompleto.modulos?.length || 0}`);
+      console.log(`📊 Total de aulas: ${cursoCompleto.modulos?.reduce((sum, mod) => sum + (mod.aulas?.length || 0), 0) || 0}`);
+
+      return cursoCompleto;
+    });
 
     res.json({
       success: true,
@@ -2376,9 +2385,26 @@ app.put('/api/cursos/:id', async (req, res) => {
 
   } catch (error) {
     console.error('❌ Erro ao atualizar curso:', error);
-    handleError(res, error, 'Erro ao atualizar curso');
+    
+    let errorMessage = 'Erro ao atualizar curso';
+    let statusCode = 500;
+    
+    if (error.code === 'P2025') {
+      errorMessage = 'Curso não encontrado';
+      statusCode = 404;
+    } else if (error.code === 'P2002') {
+      errorMessage = 'Já existe um curso com este título';
+      statusCode = 409;
+    }
+    
+    res.status(statusCode).json({
+      success: false,
+      error: errorMessage,
+      details: process.env.NODE_ENV === 'development' ? error.message : 'Erro interno'
+    });
   }
 });
+
 app.delete('/api/cursos/:id', async (req, res) => {
   try {
     const cursoId = validateId(req.params.id);
@@ -3598,6 +3624,7 @@ process.on('SIGTERM', async () => {
 });
 
 startServer();
+
 
 
 
