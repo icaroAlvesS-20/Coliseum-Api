@@ -132,7 +132,8 @@ model Curso {
   modulos   Modulo[]
   // NOVA RELAÇÃO
   progressos ProgressoCurso[]
-  
+  bloqueioProgressivo Boolean @default(true) // Adicione esta linha
+
   criadoEm  DateTime @default(now())
   atualizadoEm DateTime @updatedAt
   
@@ -296,6 +297,49 @@ model MensagemPrivada {
   remetente   Usuario     @relation(fields: [remetenteId], references: [id], onDelete: Cascade)
   
   @@map("mensagens_privadas")
+}
+model Autorizacao {
+  id          Int      @id @default(autoincrement())
+  usuarioId   Int
+  cursoId     Int
+  tipo        String   // 'liberar_todas', 'liberar_modulo', 'liberar_aula', 'bloquear_progresso'
+  moduloId    Int?     // Para tipo 'liberar_modulo'
+  aulaId      Int?     // Para tipo 'liberar_aula'
+  ativo       Boolean  @default(true)
+  criadoPor   Int      // ID do admin que criou
+  criadoEm    DateTime @default(now())
+  atualizadoEm DateTime @default(now()) @updatedAt
+
+  usuario     Usuario  @relation(fields: [usuarioId], references: [id])
+  curso       Curso    @relation(fields: [cursoId], references: [id])
+  modulo      Modulo?  @relation(fields: [moduloId], references: [id])
+  aula        Aula?    @relation(fields: [aulaId], references: [id])
+
+  @@unique([usuarioId, cursoId, moduloId, aulaId], name: "autorizacao_unique")
+}
+
+model HistoricoAutorizacao {
+  id          Int       @id @default(autoincrement())
+  cursoId     Int
+  tipo        String
+  moduloId    Int?
+  aulaId      Int?
+  usuarioIds  Json      // Array de IDs de usuários
+  observacao  String?
+  resultados  Json      // Resultado da operação
+  sucessos    Int
+  erros       Int
+  adminId     Int
+  adminNome   String?
+  criadoEm    DateTime  @default(now())
+
+  curso       Curso     @relation(fields: [cursoId], references: [id])
+  modulo      Modulo?   @relation(fields: [moduloId], references: [id])
+  aula        Aula?     @relation(fields: [aulaId], references: [id])
+
+  @@index([cursoId])
+  @@index([adminId])
+  @@index([criadoEm])
 }
 
 
