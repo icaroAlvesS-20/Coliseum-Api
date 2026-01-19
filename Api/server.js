@@ -2948,33 +2948,113 @@ app.get('/api/progresso/usuarios/:usuarioId/geral', async (req, res) => {
     handleError(res, error, 'Erro ao buscar progresso geral');
   }
 });
-app.post('/api/autorizacoes/massa', async (req, res) => {
+app.get('/api/autorizacoes/usuario/:usuarioId/curso/:cursoId', async (req, res) => {
   try {
-    const { cursoId, usuarioIds, tipo, moduloId, observacao } = req.body;
-
-    if (!cursoId || !usuarioIds || !Array.isArray(usuarioIds)) {
+    const usuarioId = validateId(req.params.usuarioId);
+    const cursoId = validateId(req.params.cursoId);
+    
+    if (!usuarioId || !cursoId) {
       return res.status(400).json({ 
         success: false,
-        error: 'Dados incompletos',
-        details: 'Forneça cursoId e lista de usuarioIds'
+        error: 'IDs inválidos' 
       });
     }
 
-    console.log(`🔐 Autorização em massa: Curso ${cursoId}, ${usuarioIds.length} usuários`);
+    console.log(`🔐 Buscando autorizações do usuário ${usuarioId} para curso ${cursoId}`);
 
-    const curso = await prisma.curso.findUnique({
-      where: { id: parseInt(cursoId), ativo: true },
+    const autorizacoes = await prisma.autorizacao.findMany({
+      where: {
+        usuarioId: usuarioId,
+        cursoId: cursoId,
+        ativo: true
+      },
       include: {
-        modulos: {
-          where: { ativo: true },
-          include: {
-            aulas: {
-              where: { ativo: true },
-              select: { id: true }
-            }
+        modulo: {
+          select: {
+            id: true,
+            titulo: true
+          }
+        },
+        aula: {
+          select: {
+            id: true,
+            titulo: true
           }
         }
       }
+    });
+
+    // Buscar configuração de bloqueio progressivo do curso
+    const curso = await prisma.curso.findUnique({
+      where: { id: cursoId },
+      select: {
+        bloqueioProgressivo: true
+      }
+    });
+
+    console.log(`✅ ${autorizacoes.length} autorizações encontradas para usuário ${usuarioId}`);
+
+    res.json({
+      success: true,
+      autorizacoes: autorizacoes,
+      bloqueioProgressivo: curso?.bloqueioProgressivo !== false, // true por padrão
+      usuarioId: usuarioId,
+      cursoId: cursoId
+    });
+
+  } catch (error) {
+    console.error('❌ Erro ao buscar autorizações:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Erro ao buscar autorizações',
+      details: process.env.NODE_ENV === 'development' ? error.message : 'Erro interno'
+    });
+  }
+});
+
+// ✅ POST AUTORIZAÇÃO EM MASSA
+app.post('/api/autorizacoes/massa', async (req, res) => {
+  try {
+    const { cursoId, tipo, usuarioIds, moduloId, aulaId, observacao, adminId, adminNome } = req.body;
+
+    // Validação básica
+    if (!cursoId || !tipo || !usuarioIds || !Array.isArray(usuarioIds)) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'Dados incompletos',
+        details: 'Forneça cursoId, tipo e lista de usuarioIds'
+      });
+    }
+
+    if (usuarioIds.length === 0) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'Lista de usuários vazia',
+        details: 'Selecione pelo menos um usuário'
+      });
+    }
+
+    if (tipo === 'liberar_modulo' && !moduloId) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'Módulo não especificado',
+        details: 'Para liberar módulo, forneça moduloId'
+      });
+    }
+
+    if (tipo === 'liberar_aula' && !aulaId) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'Aula não especificada',
+        details: 'Para liberar aula específica, forneça aulaId'
+      });
+    }
+
+    console.log(`🔐 Autorização em massa: Curso ${cursoId}, Tipo ${tipo}, ${usuarioIds.length} usuários`);
+
+    // Verificar se o curso existe
+    const curso = await prisma.curso.findUnique({
+      where: { id: parseInt(cursoId), ativo: true }
     });
 
     if (!curso) {
@@ -2984,59 +3064,212 @@ app.post('/api/autorizacoes/massa', async (req, res) => {
       });
     }
 
-    const resultados = [];
-    let aulasProcessadas = [];
-
-    // Preparar lista de aulas baseada no tipo
-    if (tipo === 'liberar_todas') {
-      curso.modulos.forEach(modulo => {
-        if (modulo.aulas) {
-          aulasProcessadas.push(...modulo.aulas.map(a => ({ aulaId: a.id, moduloId: modulo.id })));
-        }
+    // Para tipo "bloquear_progresso", atualizar configuração do curso
+    if (tipo === 'bloquear_progresso') {
+      await prisma.curso.update({
+        where: { id: parseInt(cursoId) },
+        data: { bloqueioProgressivo: true }
       });
-    } else if (tipo === 'liberar_modulo' && moduloId) {
-      const modulo = curso.modulos.find(m => m.id === parseInt(moduloId));
-      if (modulo && modulo.aulas) {
-        aulasProcessadas = modulo.aulas.map(a => ({ aulaId: a.id, moduloId: modulo.id }));
-      }
+      
+      console.log(`✅ Bloqueio progressivo ativado para curso ${cursoId}`);
+      
+      res.json({
+        success: true,
+        message: 'Bloqueio progressivo ativado com sucesso!',
+        tipo: 'bloquear_progresso'
+      });
+      return;
     }
 
-    // Processar cada usuário
+    // Para outros tipos, processar cada usuário
+    const resultados = [];
+    const autorizacoesCriadas = [];
+
     for (const usuarioId of usuarioIds) {
       try {
-        const usuario = await prisma.usuario.findUnique({
-          where: { id: parseInt(usuarioId), status: 'ativo' }
-        });
-
-        if (!usuario) {
+        const usuarioIdValidado = validateId(usuarioId);
+        if (!usuarioIdValidado) {
           resultados.push({
             usuarioId,
             sucesso: false,
-            mensagem: 'Usuário não encontrado ou inativo'
+            mensagem: 'ID de usuário inválido'
           });
           continue;
         }
 
-        if (tipo === 'resetar') {
-          // Resetar progresso - remover todas as aulas concluídas do curso
-          await resetarProgressoCurso(parseInt(usuarioId), parseInt(cursoId));
-        } else {
-          // Liberar aulas - marcar como concluídas
-          for (const { aulaId } of aulasProcessadas) {
-            await salvarProgressoAula(parseInt(usuarioId), aulaId, true);
-          }
+        // Verificar se o usuário existe
+        const usuario = await prisma.usuario.findUnique({
+          where: { id: usuarioIdValidado }
+        });
+
+        if (!usuario) {
+          resultados.push({
+            usuarioId: usuarioIdValidado,
+            sucesso: false,
+            mensagem: 'Usuário não encontrado'
+          });
+          continue;
         }
 
-        resultados.push({
-          usuarioId,
-          sucesso: true,
-          mensagem: 'Autorização aplicada com sucesso'
-        });
+        // Para tipo "liberar_todas", buscar todas as aulas do curso
+        if (tipo === 'liberar_todas') {
+          // Buscar todas as aulas do curso
+          const aulasCurso = await prisma.aula.findMany({
+            where: {
+              modulo: {
+                cursoId: parseInt(cursoId),
+                ativo: true
+              },
+              ativo: true
+            },
+            select: { id: true }
+          });
+
+          // Criar autorização para cada aula
+          for (const aula of aulasCurso) {
+            const autorizacaoExistente = await prisma.autorizacao.findFirst({
+              where: {
+                usuarioId: usuarioIdValidado,
+                cursoId: parseInt(cursoId),
+                aulaId: aula.id,
+                tipo: 'liberar_aula',
+                ativo: true
+              }
+            });
+
+            if (!autorizacaoExistente) {
+              const novaAutorizacao = await prisma.autorizacao.create({
+                data: {
+                  usuarioId: usuarioIdValidado,
+                  cursoId: parseInt(cursoId),
+                  tipo: 'liberar_aula',
+                  aulaId: aula.id,
+                  ativo: true,
+                  criadoPor: adminId || 1,
+                  criadoEm: new Date(),
+                  atualizadoEm: new Date()
+                }
+              });
+              autorizacoesCriadas.push(novaAutorizacao);
+            }
+          }
+
+          resultados.push({
+            usuarioId: usuarioIdValidado,
+            sucesso: true,
+            mensagem: `Todas as aulas (${aulasCurso.length}) liberadas`
+          });
+
+        } else if (tipo === 'liberar_modulo') {
+          // Buscar todas as aulas do módulo
+          const aulasModulo = await prisma.aula.findMany({
+            where: {
+              moduloId: parseInt(moduloId),
+              modulo: {
+                cursoId: parseInt(cursoId),
+                ativo: true
+              },
+              ativo: true
+            },
+            select: { id: true }
+          });
+
+          // Criar autorização para cada aula do módulo
+          for (const aula of aulasModulo) {
+            const autorizacaoExistente = await prisma.autorizacao.findFirst({
+              where: {
+                usuarioId: usuarioIdValidado,
+                cursoId: parseInt(cursoId),
+                aulaId: aula.id,
+                tipo: 'liberar_aula',
+                ativo: true
+              }
+            });
+
+            if (!autorizacaoExistente) {
+              await prisma.autorizacao.create({
+                data: {
+                  usuarioId: usuarioIdValidado,
+                  cursoId: parseInt(cursoId),
+                  tipo: 'liberar_aula',
+                  aulaId: aula.id,
+                  moduloId: parseInt(moduloId),
+                  ativo: true,
+                  criadoPor: adminId || 1,
+                  criadoEm: new Date(),
+                  atualizadoEm: new Date()
+                }
+              });
+            }
+          }
+
+          resultados.push({
+            usuarioId: usuarioIdValidado,
+            sucesso: true,
+            mensagem: `Módulo liberado (${aulasModulo.length} aulas)`
+          });
+
+        } else if (tipo === 'liberar_aula') {
+          // Verificar se a aula pertence ao curso
+          const aula = await prisma.aula.findFirst({
+            where: {
+              id: parseInt(aulaId),
+              modulo: {
+                cursoId: parseInt(cursoId),
+                ativo: true
+              },
+              ativo: true
+            }
+          });
+
+          if (!aula) {
+            resultados.push({
+              usuarioId: usuarioIdValidado,
+              sucesso: false,
+              mensagem: 'Aula não encontrada no curso especificado'
+            });
+            continue;
+          }
+
+          // Verificar se já existe autorização
+          const autorizacaoExistente = await prisma.autorizacao.findFirst({
+            where: {
+              usuarioId: usuarioIdValidado,
+              cursoId: parseInt(cursoId),
+              aulaId: parseInt(aulaId),
+              tipo: 'liberar_aula',
+              ativo: true
+            }
+          });
+
+          if (!autorizacaoExistente) {
+            const novaAutorizacao = await prisma.autorizacao.create({
+              data: {
+                usuarioId: usuarioIdValidado,
+                cursoId: parseInt(cursoId),
+                tipo: 'liberar_aula',
+                aulaId: parseInt(aulaId),
+                moduloId: aula.moduloId,
+                ativo: true,
+                criadoPor: adminId || 1,
+                criadoEm: new Date(),
+                atualizadoEm: new Date()
+              }
+            });
+            autorizacoesCriadas.push(novaAutorizacao);
+          }
+
+          resultados.push({
+            usuarioId: usuarioIdValidado,
+            sucesso: true,
+            mensagem: 'Aula específica liberada'
+          });
+        }
 
       } catch (usuarioError) {
         console.error(`❌ Erro para usuário ${usuarioId}:`, usuarioError);
         resultados.push({
-          usuarioId,
+          usuarioId: validateId(usuarioId) || usuarioId,
           sucesso: false,
           mensagem: usuarioError.message
         });
@@ -3049,21 +3282,27 @@ app.post('/api/autorizacoes/massa', async (req, res) => {
         cursoId: parseInt(cursoId),
         tipo: tipo,
         moduloId: moduloId ? parseInt(moduloId) : null,
+        aulaId: aulaId ? parseInt(aulaId) : null,
         usuarioIds: usuarioIds.map(id => parseInt(id)),
         observacao: observacao || null,
+        resultados: resultados,
         sucessos: resultados.filter(r => r.sucesso).length,
         erros: resultados.filter(r => !r.sucesso).length,
-        resultados: resultados,
-        adminId: req.body.adminId || 1,
+        adminId: adminId || 1,
+        adminNome: adminNome || 'Administrador',
         criadoEm: new Date()
       }
     });
+
+    console.log(`✅ Autorização em massa concluída. Histórico ID: ${historico.id}`);
 
     res.json({
       success: true,
       message: `Autorização em massa concluída. ${resultados.filter(r => r.sucesso).length} sucesso(s), ${resultados.filter(r => !r.sucesso).length} erro(s)`,
       historicoId: historico.id,
-      resultados: resultados
+      resultados: resultados,
+      totalSucessos: resultados.filter(r => r.sucesso).length,
+      totalErros: resultados.filter(r => !r.sucesso).length
     });
 
   } catch (error) {
@@ -3076,27 +3315,57 @@ app.post('/api/autorizacoes/massa', async (req, res) => {
   }
 });
 
-// ✅ GET HISTÓRICO DE AUTORIZAÇÕES
+// ✅ GET HISTÓRICO DE AUTORIZAÇÕES (ADMIN)
 app.get('/api/autorizacoes/historico', async (req, res) => {
   try {
-    const historico = await prisma.historicoAutorizacao.findMany({
-      include: {
-        curso: {
-          select: {
-            id: true,
-            titulo: true,
-            materia: true
+    const { page = 1, limit = 50 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    console.log(`📜 Buscando histórico de autorizações (página ${page})`);
+
+    const [historico, total] = await Promise.all([
+      prisma.historicoAutorizacao.findMany({
+        include: {
+          curso: {
+            select: {
+              id: true,
+              titulo: true,
+              materia: true
+            }
+          },
+          modulo: {
+            select: {
+              id: true,
+              titulo: true
+            }
+          },
+          aula: {
+            select: {
+              id: true,
+              titulo: true
+            }
           }
-        }
-      },
-      orderBy: { criadoEm: 'desc' },
-      take: 50
-    });
+        },
+        orderBy: { criadoEm: 'desc' },
+        take: parseInt(limit),
+        skip: skip
+      }),
+      prisma.historicoAutorizacao.count()
+    ]);
+
+    console.log(`✅ ${historico.length} registros de histórico carregados`);
 
     res.json({
       success: true,
-      historico: historico
+      historico: historico,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total: total,
+        totalPages: Math.ceil(total / parseInt(limit))
+      }
     });
+
   } catch (error) {
     console.error('❌ Erro ao buscar histórico:', error);
     res.status(500).json({
@@ -3107,101 +3376,431 @@ app.get('/api/autorizacoes/historico', async (req, res) => {
   }
 });
 
-// Função auxiliar para salvar progresso de aula
-async function salvarProgressoAula(usuarioId, aulaId, concluida) {
-  const progressoExistente = await prisma.progressoAula.findFirst({
-    where: {
-      usuarioId: usuarioId,
-      aulaId: aulaId
+// ✅ GET DETALHES DE AUTORIZAÇÃO
+app.get('/api/autorizacoes/historico/:id', async (req, res) => {
+  try {
+    const historicoId = validateId(req.params.id);
+    if (!historicoId) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'ID do histórico inválido' 
+      });
     }
-  });
 
-  if (progressoExistente) {
-    return await prisma.progressoAula.update({
-      where: { id: progressoExistente.id },
-      data: {
-        concluida: concluida,
-        dataConclusao: concluida ? new Date() : null,
-        atualizadoEm: new Date()
-      }
-    });
-  } else {
-    return await prisma.progressoAula.create({
-      data: {
-        usuarioId: usuarioId,
-        aulaId: aulaId,
-        concluida: concluida,
-        dataConclusao: concluida ? new Date() : null
-      }
-    });
-  }
-}
+    console.log(`🔍 Buscando detalhes do histórico ID: ${historicoId}`);
 
-// Função auxiliar para resetar progresso do curso
-async function resetarProgressoCurso(usuarioId, cursoId) {
-  // Buscar todas as aulas do curso
-  const curso = await prisma.curso.findUnique({
-    where: { id: cursoId },
-    include: {
-      modulos: {
-        include: {
-          aulas: {
-            select: { id: true }
+    const historico = await prisma.historicoAutorizacao.findUnique({
+      where: { id: historicoId },
+      include: {
+        curso: {
+          select: {
+            id: true,
+            titulo: true,
+            materia: true,
+            categoria: true
+          }
+        },
+        modulo: {
+          select: {
+            id: true,
+            titulo: true
+          }
+        },
+        aula: {
+          select: {
+            id: true,
+            titulo: true
           }
         }
       }
+    });
+
+    if (!historico) {
+      return res.status(404).json({ 
+        success: false,
+        error: 'Registro de histórico não encontrado' 
+      });
     }
-  });
 
-  if (!curso) return;
+    res.json({
+      success: true,
+      historico: historico
+    });
 
-  // Coletar todas as IDs de aula
-  const aulaIds = [];
-  curso.modulos.forEach(modulo => {
-    if (modulo.aulas) {
-      aulaIds.push(...modulo.aulas.map(a => a.id));
+  } catch (error) {
+    console.error('❌ Erro ao buscar detalhes do histórico:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Erro ao buscar detalhes do histórico',
+      details: process.env.NODE_ENV === 'development' ? error.message : 'Erro interno'
+    });
+  }
+});
+
+// ✅ PUT DESATIVAR BLOQUEIO PROGRESSIVO
+app.put('/api/cursos/:id/bloqueio', async (req, res) => {
+  try {
+    const cursoId = validateId(req.params.id);
+    if (!cursoId) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'ID do curso inválido' 
+      });
     }
-  });
 
-  // Atualizar todas as aulas como não concluídas
-  await prisma.progressoAula.updateMany({
-    where: {
-      usuarioId: usuarioId,
-      aulaId: { in: aulaIds }
-    },
-    data: {
-      concluida: false,
-      dataConclusao: null,
-      atualizadoEm: new Date()
+    const { bloqueioProgressivo } = req.body;
+
+    if (bloqueioProgressivo === undefined) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'Parâmetro bloqueioProgressivo é obrigatório' 
+      });
     }
-  });
 
-  // Resetar progresso do curso
-  await prisma.progressoCurso.updateMany({
-    where: {
-      usuarioId: usuarioId,
-      cursoId: cursoId
-    },
-    data: {
-      progresso: 0,
-      atualizadoEm: new Date()
+    console.log(`🔧 ${bloqueioProgressivo ? 'Ativando' : 'Desativando'} bloqueio progressivo para curso ${cursoId}`);
+
+    const curso = await prisma.curso.findUnique({
+      where: { id: cursoId }
+    });
+
+    if (!curso) {
+      return res.status(404).json({ 
+        success: false,
+        error: 'Curso não encontrado' 
+      });
     }
-  });
 
-  // Resetar progresso dos módulos
-  for (const modulo of curso.modulos) {
-    await prisma.progressoModulo.updateMany({
-      where: {
-        usuarioId: usuarioId,
-        moduloId: modulo.id
-      },
-      data: {
-        progresso: 0,
+    const cursoAtualizado = await prisma.curso.update({
+      where: { id: cursoId },
+      data: { 
+        bloqueioProgressivo: bloqueioProgressivo,
         atualizadoEm: new Date()
       }
     });
+
+    console.log(`✅ Bloqueio progressivo ${bloqueioProgressivo ? 'ativado' : 'desativado'} para curso ${curso.titulo}`);
+
+    res.json({
+      success: true,
+      message: `Bloqueio progressivo ${bloqueioProgressivo ? 'ativado' : 'desativado'} com sucesso!`,
+      curso: {
+        id: cursoAtualizado.id,
+        titulo: cursoAtualizado.titulo,
+        bloqueioProgressivo: cursoAtualizado.bloqueioProgressivo
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Erro ao alterar bloqueio:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Erro ao alterar configuração de bloqueio',
+      details: process.env.NODE_ENV === 'development' ? error.message : 'Erro interno'
+    });
   }
-}
+});
+
+// ✅ DELETE REMOVER AUTORIZAÇÃO
+app.delete('/api/autorizacoes/:id', async (req, res) => {
+  try {
+    const autorizacaoId = validateId(req.params.id);
+    if (!autorizacaoId) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'ID da autorização inválido' 
+      });
+    }
+
+    const { isAdmin } = req.body;
+
+    if (!isAdmin) {
+      return res.status(403).json({ 
+        success: false,
+        error: 'Acesso negado',
+        details: 'Apenas administradores podem remover autorizações'
+      });
+    }
+
+    console.log(`🗑️ Removendo autorização ID: ${autorizacaoId}`);
+
+    const autorizacao = await prisma.autorizacao.findUnique({
+      where: { id: autorizacaoId }
+    });
+
+    if (!autorizacao) {
+      return res.status(404).json({ 
+        success: false,
+        error: 'Autorização não encontrada' 
+      });
+    }
+
+    await prisma.autorizacao.update({
+      where: { id: autorizacaoId },
+      data: { 
+        ativo: false,
+        atualizadoEm: new Date()
+      }
+    });
+
+    console.log(`✅ Autorização removida (ID: ${autorizacaoId})`);
+
+    res.json({
+      success: true,
+      message: 'Autorização removida com sucesso!',
+      autorizacaoId: autorizacaoId
+    });
+
+  } catch (error) {
+    console.error('❌ Erro ao remover autorização:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Erro ao remover autorização',
+      details: process.env.NODE_ENV === 'development' ? error.message : 'Erro interno'
+    });
+  }
+});
+
+// ✅ GET VERIFICAR AUTORIZAÇÃO ESPECÍFICA
+app.get('/api/autorizacoes/verificar', async (req, res) => {
+  try {
+    const { usuarioId, cursoId, aulaId } = req.query;
+
+    if (!usuarioId || !cursoId || !aulaId) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'Parâmetros necessários',
+        details: 'Forneça usuarioId, cursoId e aulaId'
+      });
+    }
+
+    const usuarioIdValidado = validateId(usuarioId);
+    const cursoIdValidado = validateId(cursoId);
+    const aulaIdValidado = validateId(aulaId);
+
+    if (!usuarioIdValidado || !cursoIdValidado || !aulaIdValidado) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'IDs inválidos' 
+      });
+    }
+
+    console.log(`🔍 Verificando autorização: Usuário ${usuarioId}, Curso ${cursoId}, Aula ${aulaId}`);
+
+    // Verificar se a aula está concluída
+    const aulaConcluida = await prisma.progressoAula.findFirst({
+      where: {
+        usuarioId: usuarioIdValidado,
+        aulaId: aulaIdValidado,
+        concluida: true
+      }
+    });
+
+    if (aulaConcluida) {
+      return res.json({
+        success: true,
+        autorizada: true,
+        motivo: 'Aula já concluída',
+        aulaConcluida: true
+      });
+    }
+
+    // Verificar se existe autorização específica para esta aula
+    const autorizacaoEspecifica = await prisma.autorizacao.findFirst({
+      where: {
+        usuarioId: usuarioIdValidado,
+        cursoId: cursoIdValidado,
+        aulaId: aulaIdValidado,
+        tipo: 'liberar_aula',
+        ativo: true
+      }
+    });
+
+    if (autorizacaoEspecifica) {
+      return res.json({
+        success: true,
+        autorizada: true,
+        motivo: 'Autorização específica encontrada',
+        tipoAutorizacao: 'liberar_aula'
+      });
+    }
+
+    // Verificar configuração de bloqueio progressivo do curso
+    const curso = await prisma.curso.findUnique({
+      where: { id: cursoIdValidado },
+      select: { bloqueioProgressivo: true }
+    });
+
+    // Se o bloqueio progressivo estiver desativado, permitir acesso
+    if (curso?.bloqueioProgressivo === false) {
+      return res.json({
+        success: true,
+        autorizada: true,
+        motivo: 'Bloqueio progressivo desativado para este curso',
+        bloqueioProgressivo: false
+      });
+    }
+
+    // Se chegou até aqui, aplicar bloqueio progressivo
+    // Buscar a aula anterior
+    const aula = await prisma.aula.findUnique({
+      where: { id: aulaIdValidado },
+      include: {
+        modulo: {
+          select: {
+            id: true,
+            ordem: true,
+            cursoId: true,
+            aulas: {
+              where: { ativo: true },
+              select: { id: true, ordem: true },
+              orderBy: { ordem: 'asc' }
+            }
+          }
+        }
+      }
+    });
+
+    if (!aula) {
+      return res.json({
+        success: true,
+        autorizada: false,
+        motivo: 'Aula não encontrada'
+      });
+    }
+
+    // Encontrar aula anterior
+    let aulaAnterior = null;
+    const aulasModulo = aula.modulo.aulas;
+    const aulaIndex = aulasModulo.findIndex(a => a.id === aulaIdValidado);
+
+    if (aulaIndex > 0) {
+      // Aula anterior no mesmo módulo
+      aulaAnterior = aulasModulo[aulaIndex - 1];
+    } else {
+      // Primeira aula do módulo - verificar último módulo
+      const moduloAnterior = await prisma.modulo.findFirst({
+        where: {
+          cursoId: cursoIdValidado,
+          ordem: aula.modulo.ordem - 1,
+          ativo: true
+        },
+        include: {
+          aulas: {
+            where: { ativo: true },
+            select: { id: true, ordem: true },
+            orderBy: { ordem: 'desc' }
+          }
+        },
+        orderBy: { ordem: 'desc' }
+      });
+
+      if (moduloAnterior && moduloAnterior.aulas.length > 0) {
+        aulaAnterior = moduloAnterior.aulas[0]; // Última aula do módulo anterior
+      }
+    }
+
+    // Verificar se a aula anterior está concluída
+    if (aulaAnterior) {
+      const aulaAnteriorConcluida = await prisma.progressoAula.findFirst({
+        where: {
+          usuarioId: usuarioIdValidado,
+          aulaId: aulaAnterior.id,
+          concluida: true
+        }
+      });
+
+      return res.json({
+        success: true,
+        autorizada: aulaAnteriorConcluida ? true : false,
+        motivo: aulaAnteriorConcluida ? 
+          'Aula anterior concluída' : 
+          'Aula anterior não concluída',
+        aulaAnterior: {
+          id: aulaAnterior.id,
+          concluida: !!aulaAnteriorConcluida
+        },
+        bloqueioProgressivo: true
+      });
+    } else {
+      // Primeira aula do curso
+      return res.json({
+        success: true,
+        autorizada: true,
+        motivo: 'Primeira aula do curso',
+        primeiraAula: true
+      });
+    }
+
+  } catch (error) {
+    console.error('❌ Erro ao verificar autorização:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Erro ao verificar autorização',
+      details: process.env.NODE_ENV === 'development' ? error.message : 'Erro interno'
+    });
+  }
+});
+
+// ✅ GET AUTORIZAÇÕES POR USUÁRIO
+app.get('/api/autorizacoes/usuarios/:usuarioId', async (req, res) => {
+  try {
+    const usuarioId = validateId(req.params.usuarioId);
+    if (!usuarioId) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'ID do usuário inválido' 
+      });
+    }
+
+    console.log(`📋 Buscando todas as autorizações do usuário ${usuarioId}`);
+
+    const autorizacoes = await prisma.autorizacao.findMany({
+      where: {
+        usuarioId: usuarioId,
+        ativo: true
+      },
+      include: {
+        curso: {
+          select: {
+            id: true,
+            titulo: true,
+            materia: true
+          }
+        },
+        modulo: {
+          select: {
+            id: true,
+            titulo: true
+          }
+        },
+        aula: {
+          select: {
+            id: true,
+            titulo: true
+          }
+        }
+      },
+      orderBy: { atualizadoEm: 'desc' }
+    });
+
+    console.log(`✅ ${autorizacoes.length} autorizações encontradas`);
+
+    res.json({
+      success: true,
+      autorizacoes: autorizacoes,
+      total: autorizacoes.length
+    });
+
+  } catch (error) {
+    console.error('❌ Erro ao buscar autorizações do usuário:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Erro ao buscar autorizações',
+      details: process.env.NODE_ENV === 'development' ? error.message : 'Erro interno'
+    });
+  }
+});
+
 // ========== SISTEMA DE VÍDEOS ========== //
 
 app.get('/api/videos', async (req, res) => {
@@ -4088,6 +4687,7 @@ process.on('SIGTERM', async () => {
 });
 
 startServer();
+
 
 
 
