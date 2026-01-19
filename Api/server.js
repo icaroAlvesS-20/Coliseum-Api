@@ -1763,8 +1763,6 @@ app.put('/api/chat/mensagens/:id', async (req, res) => {
 
 // ========== SISTEMA DE CURSOS ========== //
 
-// ========== SISTEMA DE CURSOS ========== //
-
 // ✅ GET TODOS OS CURSOS
 app.get('/api/cursos', async (req, res) => {
   try {
@@ -2950,7 +2948,260 @@ app.get('/api/progresso/usuarios/:usuarioId/geral', async (req, res) => {
     handleError(res, error, 'Erro ao buscar progresso geral');
   }
 });
+app.post('/api/autorizacoes/massa', async (req, res) => {
+  try {
+    const { cursoId, usuarioIds, tipo, moduloId, observacao } = req.body;
 
+    if (!cursoId || !usuarioIds || !Array.isArray(usuarioIds)) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'Dados incompletos',
+        details: 'Forneça cursoId e lista de usuarioIds'
+      });
+    }
+
+    console.log(`🔐 Autorização em massa: Curso ${cursoId}, ${usuarioIds.length} usuários`);
+
+    const curso = await prisma.curso.findUnique({
+      where: { id: parseInt(cursoId), ativo: true },
+      include: {
+        modulos: {
+          where: { ativo: true },
+          include: {
+            aulas: {
+              where: { ativo: true },
+              select: { id: true }
+            }
+          }
+        }
+      }
+    });
+
+    if (!curso) {
+      return res.status(404).json({ 
+        success: false,
+        error: 'Curso não encontrado' 
+      });
+    }
+
+    const resultados = [];
+    let aulasProcessadas = [];
+
+    // Preparar lista de aulas baseada no tipo
+    if (tipo === 'liberar_todas') {
+      curso.modulos.forEach(modulo => {
+        if (modulo.aulas) {
+          aulasProcessadas.push(...modulo.aulas.map(a => ({ aulaId: a.id, moduloId: modulo.id })));
+        }
+      });
+    } else if (tipo === 'liberar_modulo' && moduloId) {
+      const modulo = curso.modulos.find(m => m.id === parseInt(moduloId));
+      if (modulo && modulo.aulas) {
+        aulasProcessadas = modulo.aulas.map(a => ({ aulaId: a.id, moduloId: modulo.id }));
+      }
+    }
+
+    // Processar cada usuário
+    for (const usuarioId of usuarioIds) {
+      try {
+        const usuario = await prisma.usuario.findUnique({
+          where: { id: parseInt(usuarioId), status: 'ativo' }
+        });
+
+        if (!usuario) {
+          resultados.push({
+            usuarioId,
+            sucesso: false,
+            mensagem: 'Usuário não encontrado ou inativo'
+          });
+          continue;
+        }
+
+        if (tipo === 'resetar') {
+          // Resetar progresso - remover todas as aulas concluídas do curso
+          await resetarProgressoCurso(parseInt(usuarioId), parseInt(cursoId));
+        } else {
+          // Liberar aulas - marcar como concluídas
+          for (const { aulaId } of aulasProcessadas) {
+            await salvarProgressoAula(parseInt(usuarioId), aulaId, true);
+          }
+        }
+
+        resultados.push({
+          usuarioId,
+          sucesso: true,
+          mensagem: 'Autorização aplicada com sucesso'
+        });
+
+      } catch (usuarioError) {
+        console.error(`❌ Erro para usuário ${usuarioId}:`, usuarioError);
+        resultados.push({
+          usuarioId,
+          sucesso: false,
+          mensagem: usuarioError.message
+        });
+      }
+    }
+
+    // Salvar no histórico
+    const historico = await prisma.historicoAutorizacao.create({
+      data: {
+        cursoId: parseInt(cursoId),
+        tipo: tipo,
+        moduloId: moduloId ? parseInt(moduloId) : null,
+        usuarioIds: usuarioIds.map(id => parseInt(id)),
+        observacao: observacao || null,
+        sucessos: resultados.filter(r => r.sucesso).length,
+        erros: resultados.filter(r => !r.sucesso).length,
+        resultados: resultados,
+        adminId: req.body.adminId || 1,
+        criadoEm: new Date()
+      }
+    });
+
+    res.json({
+      success: true,
+      message: `Autorização em massa concluída. ${resultados.filter(r => r.sucesso).length} sucesso(s), ${resultados.filter(r => !r.sucesso).length} erro(s)`,
+      historicoId: historico.id,
+      resultados: resultados
+    });
+
+  } catch (error) {
+    console.error('❌ Erro na autorização em massa:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Erro na autorização em massa',
+      details: process.env.NODE_ENV === 'development' ? error.message : 'Erro interno'
+    });
+  }
+});
+
+// ✅ GET HISTÓRICO DE AUTORIZAÇÕES
+app.get('/api/autorizacoes/historico', async (req, res) => {
+  try {
+    const historico = await prisma.historicoAutorizacao.findMany({
+      include: {
+        curso: {
+          select: {
+            id: true,
+            titulo: true,
+            materia: true
+          }
+        }
+      },
+      orderBy: { criadoEm: 'desc' },
+      take: 50
+    });
+
+    res.json({
+      success: true,
+      historico: historico
+    });
+  } catch (error) {
+    console.error('❌ Erro ao buscar histórico:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Erro ao buscar histórico',
+      details: process.env.NODE_ENV === 'development' ? error.message : 'Erro interno'
+    });
+  }
+});
+
+// Função auxiliar para salvar progresso de aula
+async function salvarProgressoAula(usuarioId, aulaId, concluida) {
+  const progressoExistente = await prisma.progressoAula.findFirst({
+    where: {
+      usuarioId: usuarioId,
+      aulaId: aulaId
+    }
+  });
+
+  if (progressoExistente) {
+    return await prisma.progressoAula.update({
+      where: { id: progressoExistente.id },
+      data: {
+        concluida: concluida,
+        dataConclusao: concluida ? new Date() : null,
+        atualizadoEm: new Date()
+      }
+    });
+  } else {
+    return await prisma.progressoAula.create({
+      data: {
+        usuarioId: usuarioId,
+        aulaId: aulaId,
+        concluida: concluida,
+        dataConclusao: concluida ? new Date() : null
+      }
+    });
+  }
+}
+
+// Função auxiliar para resetar progresso do curso
+async function resetarProgressoCurso(usuarioId, cursoId) {
+  // Buscar todas as aulas do curso
+  const curso = await prisma.curso.findUnique({
+    where: { id: cursoId },
+    include: {
+      modulos: {
+        include: {
+          aulas: {
+            select: { id: true }
+          }
+        }
+      }
+    }
+  });
+
+  if (!curso) return;
+
+  // Coletar todas as IDs de aula
+  const aulaIds = [];
+  curso.modulos.forEach(modulo => {
+    if (modulo.aulas) {
+      aulaIds.push(...modulo.aulas.map(a => a.id));
+    }
+  });
+
+  // Atualizar todas as aulas como não concluídas
+  await prisma.progressoAula.updateMany({
+    where: {
+      usuarioId: usuarioId,
+      aulaId: { in: aulaIds }
+    },
+    data: {
+      concluida: false,
+      dataConclusao: null,
+      atualizadoEm: new Date()
+    }
+  });
+
+  // Resetar progresso do curso
+  await prisma.progressoCurso.updateMany({
+    where: {
+      usuarioId: usuarioId,
+      cursoId: cursoId
+    },
+    data: {
+      progresso: 0,
+      atualizadoEm: new Date()
+    }
+  });
+
+  // Resetar progresso dos módulos
+  for (const modulo of curso.modulos) {
+    await prisma.progressoModulo.updateMany({
+      where: {
+        usuarioId: usuarioId,
+        moduloId: modulo.id
+      },
+      data: {
+        progresso: 0,
+        atualizadoEm: new Date()
+      }
+    });
+  }
+}
 // ========== SISTEMA DE VÍDEOS ========== //
 
 app.get('/api/videos', async (req, res) => {
@@ -3837,6 +4088,7 @@ process.on('SIGTERM', async () => {
 });
 
 startServer();
+
 
 
 
