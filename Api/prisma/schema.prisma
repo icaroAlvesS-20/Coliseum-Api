@@ -311,24 +311,30 @@ model ConfiguracaoCurso {
   curso           Curso    @relation(fields: [cursoId], references: [id], onDelete: Cascade)
 }
 
-model AutorizacaoAula {
-  id             Int      @id @default(autoincrement())
-  usuarioId      Int
-  cursoId        Int
-  aulaId         Int
-  tipo           String   // liberar, bloquear, pular
-  motivo         String?
-  adminId        Int
-  ativo          Boolean  @default(true)
-  dataExpiracao  DateTime?
-  criadoEm       DateTime @default(now())
-  atualizadoEm   DateTime @updatedAt
+model SolicitacaoAutorizacao {
+  id              Int      @id @default(autoincrement())
+  usuarioId       Int
+  cursoId         Int
+  aulaId          Int
+  moduloId        Int?
+  motivo          String?
+  motivoRejeicao  String?
+  status          String   @default("pendente") // pendente, aprovado, rejeitado
+  autorizacaoId   Int?
+  adminId         Int?
+  criadoEm        DateTime @default(now())
+  processadoEm    DateTime?
+  atualizadoEm    DateTime @updatedAt
   
-  usuario        Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
-  curso          Curso    @relation(fields: [cursoId], references: [id], onDelete: Cascade)
-  aula           Aula     @relation(fields: [aulaId], references: [id], onDelete: Cascade)
-  admin          Usuario  @relation("AdminAutorizacoes", fields: [adminId], references: [id])
+  usuario  Usuario @relation(fields: [usuarioId], references: [id])
+  curso    Curso   @relation(fields: [cursoId], references: [id])
+  aula     Aula    @relation(fields: [aulaId], references: [id])
+  modulo   Modulo? @relation(fields: [moduloId], references: [id])
+  admin    Usuario? @relation("AdminSolicitacoes", fields: [adminId], references: [id])
   
-  @@index([usuarioId, cursoId])
+  @@index([usuarioId])
+  @@index([cursoId])
   @@index([aulaId])
+  @@index([status])
+  @@index([criadoEm])
 }
