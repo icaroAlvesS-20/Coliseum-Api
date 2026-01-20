@@ -372,3 +372,31 @@ model AutorizacaoAula {
   @@index([dataExpiracao])
   @@map("autorizacoes_aula")
 }
+
+// Adicione estes modelos se não existirem no seu schema
+model SistemaAutorizacao {
+  id              Int      @id @default(autoincrement())
+  bloqueioTotal   Boolean  @default(true)
+  modo            String   @default("progressivo") // "progressivo", "total", "livre"
+  mensagem        String?
+  atualizadoEm    DateTime @updatedAt
+  atualizadoPor   Int?
+  
+  @@map("sistema_autorizacao")
+}
+
+model LogAutorizacao {
+  id              Int      @id @default(autoincrement())
+  tipo            String   // "criada", "revogada", "expirada"
+  autorizacaoId   Int
+  usuarioId       Int
+  adminId         Int?
+  detalhes        Json?
+  criadoEm        DateTime @default(now())
+  
+  autorizacao     AutorizacaoAula @relation(fields: [autorizacaoId], references: [id])
+  usuario         Usuario         @relation(fields: [usuarioId], references: [id])
+  admin           Usuario?        @relation(fields: [adminId], references: [id])
+  
+  @@map("log_autorizacao")
+}
