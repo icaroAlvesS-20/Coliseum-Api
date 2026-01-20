@@ -3021,6 +3021,138 @@ app.get('/api/autorizacoes/usuario/:usuarioId/curso/:cursoId', async (req, res) 
     }
 });
 
+// ✅ GET/POST CONFIGURAÇÃO DE PROGRESSO DO CURSO
+app.get('/api/cursos/:id/config-progresso', async (req, res) => {
+    try {
+        const cursoId = validateId(req.params.id);
+        
+        const config = await prisma.configuracaoCurso.findFirst({
+            where: { cursoId: cursoId }
+        }) || {
+            cursoId: cursoId,
+            modoProgresso: 'auto', // auto, controlado, misto
+            permiteAvancar: true,
+            requerAutorizacao: false,
+            limiteDiasAula: null
+        };
+        
+        res.json({
+            success: true,
+            config: config
+        });
+        
+    } catch (error) {
+        handleError(res, error, 'Erro ao carregar configuração');
+    }
+});
+
+app.post('/api/cursos/:id/config-progresso', async (req, res) => {
+    try {
+        const cursoId = validateId(req.params.id);
+        const { modoProgresso, permiteAvancar, requerAutorizacao, limiteDiasAula } = req.body;
+        
+        const configExistente = await prisma.configuracaoCurso.findFirst({
+            where: { cursoId: cursoId }
+        });
+        
+        let config;
+        
+        if (configExistente) {
+            config = await prisma.configuracaoCurso.update({
+                where: { id: configExistente.id },
+                data: {
+                    modoProgresso: modoProgresso || 'auto',
+                    permiteAvancar: permiteAvancar !== undefined ? permiteAvancar : true,
+                    requerAutorizacao: requerAutorizacao !== undefined ? requerAutorizacao : false,
+                    limiteDiasAula: limiteDiasAula,
+                    atualizadoEm: new Date()
+                }
+            });
+        } else {
+            config = await prisma.configuracaoCurso.create({
+                data: {
+                    cursoId: cursoId,
+                    modoProgresso: modoProgresso || 'auto',
+                    permiteAvancar: permiteAvancar !== undefined ? permiteAvancar : true,
+                    requerAutorizacao: requerAutorizacao !== undefined ? requerAutorizacao : false,
+                    limiteDiasAula: limiteDiasAula,
+                    criadoEm: new Date(),
+                    atualizadoEm: new Date()
+                }
+            });
+        }
+        
+        res.json({
+            success: true,
+            message: 'Configuração de progresso atualizada!',
+            config: config
+        });
+        
+    } catch (error) {
+        handleError(res, error, 'Erro ao salvar configuração');
+    }
+});
+
+app.get('/api/autorizacoes/verificar-simplificado', async (req, res) => {
+    try {
+        const { usuarioId, cursoId, aulaId } = req.query;
+        
+        console.log(`🔍 Verificação simplificada - Usuário: ${usuarioId}, Curso: ${cursoId}, Aula: ${aulaId}`);
+        
+        const autorizacaoEspecial = await prisma.autorizacaoAula.findFirst({
+            where: {
+                usuarioId: parseInt(usuarioId),
+                cursoId: parseInt(cursoId),
+                aulaId: parseInt(aulaId),
+                ativo: true,
+                dataExpiracao: {
+                    gte: new Date()
+                }
+            }
+        });
+        
+        const autorizacaoMassa = await prisma.autorizacaoMassa.findFirst({
+            where: {
+                usuarioId: parseInt(usuarioId),
+                cursoId: parseInt(cursoId),
+                OR: [
+                    { tipo: 'liberar_todas' },
+                    { 
+                        tipo: 'liberar_modulo',
+                        modulo: {
+                            aulas: {
+                                some: { id: parseInt(aulaId) }
+                            }
+                        }
+                    }
+                ],
+                ativo: true,
+                dataExpiracao: {
+                    gte: new Date()
+                }
+            }
+        });
+        
+        const autorizada = !!(autorizacaoEspecial || autorizacaoMassa);
+        
+        res.json({
+            success: true,
+            autorizada: autorizada,
+            possuiAutorizacaoEspecial: !!autorizacaoEspecial,
+            possuiAutorizacaoMassa: !!autorizacaoMassa,
+            timestamp: new Date().toISOString()
+        });
+        
+    } catch (error) {
+        console.error('❌ Erro na verificação simplificada:', error);
+        res.json({
+            success: true,
+            autorizada: true, 
+            error: error.message,
+            timestamp: new Date().toISOString()
+        });
+    }
+});
 // ========== SISTEMA DE VÍDEOS ========== //
 
 app.get('/api/videos', async (req, res) => {
@@ -3907,6 +4039,7 @@ process.on('SIGTERM', async () => {
 });
 
 startServer();
+
 
 
 
