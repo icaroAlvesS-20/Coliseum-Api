@@ -3640,6 +3640,347 @@ app.put('/api/autorizacoes/:id/desativar', async (req, res) => {
   }
 });
 
+// ========== SISTEMA DE AUTORIZAÇÃO - ENDPOINTS ========== //
+
+// ✅ GET STATUS DO SISTEMA DE AUTORIZAÇÃO
+app.get('/api/sistema/autorizacao/status', async (req, res) => {
+    try {
+        // Configuração fixa por enquanto
+        // No futuro pode ser armazenada no banco
+        const config = {
+            sistemaAtivo: true,
+            bloqueioTotal: true,
+            modo: "bloqueio_progressivo",
+            mensagem: "Sistema de autorização ativo - Todas as aulas requerem autorização"
+        };
+        
+        res.json({
+            success: true,
+            sistema: config
+        });
+    } catch (error) {
+        handleError(res, error, 'Erro ao buscar status do sistema');
+    }
+});
+
+// ✅ GET AUTORIZAÇÕES DE UM USUÁRIO ESPECÍFICO PARA UM CURSO
+app.get('/api/autorizacoes/curso/:cursoId/usuario/:usuarioId', async (req, res) => {
+    try {
+        const cursoId = validateId(req.params.cursoId);
+        const usuarioId = validateId(req.params.usuarioId);
+        
+        if (!cursoId || !usuarioId) {
+            return res.status(400).json({
+                success: false,
+                error: 'IDs inválidos'
+            });
+        }
+        
+        console.log(`🔍 Buscando autorizações - Usuário:${usuarioId}, Curso:${cursoId}`);
+        
+        const autorizacoes = await prisma.autorizacaoAula.findMany({
+            where: {
+                usuarioId: usuarioId,
+                cursoId: cursoId,
+                ativo: true,
+                OR: [
+                    { dataExpiracao: null },
+                    { dataExpiracao: { gt: new Date() } }
+                ]
+            },
+            include: {
+                aula: {
+                    select: { id: true, titulo: true, moduloId: true }
+                },
+                modulo: {
+                    select: { id: true, titulo: true }
+                }
+            },
+            orderBy: { criadoEm: 'desc' }
+        });
+        
+        res.json({
+            success: true,
+            autorizacoes: autorizacoes,
+            total: autorizacoes.length
+        });
+        
+    } catch (error) {
+        console.error('❌ Erro ao buscar autorizações:', error);
+        handleError(res, error, 'Erro ao buscar autorizações');
+    }
+});
+
+// ✅ POST CRIAR AUTORIZAÇÃO EM MASSA (ADMIN)
+app.post('/api/autorizacoes/massa', async (req, res) => {
+    try {
+        console.log('👥 Recebendo autorização em massa...');
+        
+        const {
+            tipo,
+            cursoId,
+            usuarioIds,
+            aulaId,
+            moduloId,
+            motivo,
+            dataExpiracao,
+            adminId,
+            notificarUsuarios = false,
+            observacao
+        } = req.body;
+        
+        if (!tipo || !cursoId || !usuarioIds || !Array.isArray(usuarioIds) || !adminId) {
+            return res.status(400).json({
+                success: false,
+                error: 'Dados incompletos',
+                details: 'Forneça tipo, cursoId, usuarioIds (array) e adminId'
+            });
+        }
+        
+        if (usuarioIds.length === 0) {
+            return res.status(400).json({
+                success: false,
+                error: 'Nenhum usuário selecionado'
+            });
+        }
+        
+        console.log(`📋 Autorização em massa: ${tipo} para ${usuarioIds.length} usuários`);
+        
+        const autorizacoesCriadas = [];
+        const erros = [];
+        
+        for (const usuarioId of usuarioIds) {
+            try {
+                // Verificar se já existe autorização ativa
+                const autorizacaoExistente = await prisma.autorizacaoAula.findFirst({
+                    where: {
+                        usuarioId: usuarioId,
+                        cursoId: cursoId,
+                        aulaId: aulaId || null,
+                        moduloId: moduloId || null,
+                        tipo: tipo,
+                        ativo: true,
+                        OR: [
+                            { dataExpiracao: null },
+                            { dataExpiracao: { gt: new Date() } }
+                        ]
+                    }
+                });
+                
+                if (autorizacaoExistente) {
+                    erros.push({
+                        usuarioId,
+                        erro: 'Autorização já existe',
+                        autorizacaoId: autorizacaoExistente.id
+                    });
+                    continue;
+                }
+                
+                const autorizacao = await prisma.autorizacaoAula.create({
+                    data: {
+                        tipo: tipo,
+                        usuarioId: usuarioId,
+                        cursoId: cursoId,
+                        aulaId: aulaId || null,
+                        moduloId: moduloId || null,
+                        motivo: motivo || `Autorização em massa: ${tipo}`,
+                        dataExpiracao: dataExpiracao ? new Date(dataExpiracao) : null,
+                        adminId: adminId,
+                        ativo: true,
+                        criadoEm: new Date(),
+                        atualizadoEm: new Date()
+                    },
+                    include: {
+                        usuario: {
+                            select: { id: true, nome: true, ra: true }
+                        }
+                    }
+                });
+                
+                autorizacoesCriadas.push(autorizacao);
+                console.log(`✅ Autorização criada para usuário ${usuarioId}`);
+                
+            } catch (error) {
+                console.error(`❌ Erro para usuário ${usuarioId}:`, error.message);
+                erros.push({
+                    usuarioId,
+                    erro: error.message
+                });
+            }
+        }
+        
+        res.json({
+            success: true,
+            message: `Autorização em massa concluída!`,
+            resultado: {
+                processados: autorizacoesCriadas.length,
+                erros: erros.length,
+                totalUsuarios: usuarioIds.length
+            },
+            autorizacoes: autorizacoesCriadas.slice(0, 10), // Limitar resposta
+            erros: erros
+        });
+        
+    } catch (error) {
+        console.error('❌ Erro na autorização em massa:', error);
+        handleError(res, error, 'Erro na autorização em massa');
+    }
+});
+
+// ✅ GET VERIFICAR AUTORIZAÇÃO DE UMA AULA (FRONTEND ALUNO)
+app.get('/api/autorizacoes/verificar/:usuarioId/:cursoId/:aulaId', async (req, res) => {
+    try {
+        const usuarioId = validateId(req.params.usuarioId);
+        const cursoId = validateId(req.params.cursoId);
+        const aulaId = validateId(req.params.aulaId);
+        
+        if (!usuarioId || !cursoId || !aulaId) {
+            return res.status(400).json({
+                success: false,
+                autorizada: false,
+                error: 'Parâmetros inválidos'
+            });
+        }
+        
+        console.log(`🔍 Verificando autorização - Usuário:${usuarioId}, Curso:${cursoId}, Aula:${aulaId}`);
+        
+        // 1. Verificar se já está concluída (permite revisão)
+        const progresso = await prisma.progressoAula.findFirst({
+            where: {
+                usuarioId: usuarioId,
+                aulaId: aulaId,
+                concluida: true
+            }
+        });
+        
+        if (progresso) {
+            return res.json({
+                success: true,
+                autorizada: true,
+                motivo: 'Aula já concluída',
+                permiteRevisao: true
+            });
+        }
+        
+        // 2. Buscar aula para obter módulo
+        const aula = await prisma.aula.findUnique({
+            where: { id: aulaId },
+            select: { moduloId: true }
+        });
+        
+        if (!aula) {
+            return res.json({
+                success: true,
+                autorizada: false,
+                motivo: 'Aula não encontrada'
+            });
+        }
+        
+        // 3. Verificar autorizações ativas
+        const autorizacoes = await prisma.autorizacaoAula.findMany({
+            where: {
+                usuarioId: usuarioId,
+                cursoId: cursoId,
+                ativo: true,
+                OR: [
+                    { dataExpiracao: null },
+                    { dataExpiracao: { gt: new Date() } }
+                ]
+            }
+        });
+        
+        let autorizada = false;
+        let motivo = 'Sem autorização';
+        
+        for (const auth of autorizacoes) {
+            if (auth.tipo === 'liberar_todas') {
+                autorizada = true;
+                motivo = 'Curso totalmente liberado';
+                break;
+            }
+            
+            if (auth.tipo === 'liberar_modulo' && auth.moduloId === aula.moduloId) {
+                autorizada = true;
+                motivo = 'Módulo liberado';
+                break;
+            }
+            
+            if (auth.tipo === 'liberar_aula' && auth.aulaId === aulaId) {
+                autorizada = true;
+                motivo = 'Aula específica liberada';
+                break;
+            }
+        }
+        
+        console.log(`📊 Resultado: ${autorizada ? '✅ AUTORIZADA' : '❌ NÃO AUTORIZADA'}`);
+        
+        res.json({
+            success: true,
+            autorizada: autorizada,
+            motivo: motivo,
+            detalhes: {
+                totalAutorizacoes: autorizacoes.length,
+                temLiberacaoTotal: autorizacoes.some(a => a.tipo === 'liberar_todas'),
+                temLiberacaoModulo: autorizacoes.some(a => a.tipo === 'liberar_modulo' && a.moduloId === aula.moduloId),
+                temLiberacaoAula: autorizacoes.some(a => a.tipo === 'liberar_aula' && a.aulaId === aulaId)
+            }
+        });
+        
+    } catch (error) {
+        console.error('❌ Erro ao verificar autorização:', error);
+        res.status(500).json({
+            success: false,
+            autorizada: false,
+            error: 'Erro ao verificar autorização'
+        });
+    }
+});
+
+// ✅ GET BUSCAR AULAS PARA DROPDOWN
+app.get('/api/cursos/:cursoId/aulas', async (req, res) => {
+    try {
+        const cursoId = validateId(req.params.cursoId);
+        
+        if (!cursoId) {
+            return res.status(400).json({
+                success: false,
+                error: 'ID do curso inválido'
+            });
+        }
+        
+        const aulas = await prisma.aula.findMany({
+            where: {
+                modulo: {
+                    cursoId: cursoId
+                },
+                ativo: true
+            },
+            include: {
+                modulo: {
+                    select: {
+                        id: true,
+                        titulo: true,
+                        ordem: true
+                    }
+                }
+            },
+            orderBy: [
+                { modulo: { ordem: 'asc' } },
+                { ordem: 'asc' }
+            ]
+        });
+        
+        res.json({
+            success: true,
+            aulas: aulas
+        });
+        
+    } catch (error) {
+        console.error('❌ Erro ao buscar aulas:', error);
+        handleError(res, error, 'Erro ao buscar aulas');
+    }
+});
+
 // ========== SISTEMA DE VÍDEOS ========== //
 
 app.get('/api/videos', async (req, res) => {
@@ -4526,19 +4867,3 @@ process.on('SIGTERM', async () => {
 });
 
 startServer();
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
