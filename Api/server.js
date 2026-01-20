@@ -2949,14 +2949,25 @@ app.get('/api/progresso/usuarios/:usuarioId/geral', async (req, res) => {
   }
 });
 
-// ========== FUNÇÃO AUXILIAR ========== //
+// ========== FUNÇÕES AUXILIARES ========== //
+
 function validateId(id) {
   if (!id) return null;
   const parsed = parseInt(id);
   return isNaN(parsed) ? null : parsed;
 }
 
-// ========== NOVO ENDPOINT: Verificar se aula está autorizada ========== //
+function formatarRespostaErro(res, status, mensagem, detalhes = null) {
+  return res.status(status).json({
+    success: false,
+    error: mensagem,
+    details: detalhes
+  });
+}
+
+// ========== ENDPOINTS DO SISTEMA DE AUTORIZAÇÃO ========== //
+
+// ✅ 1. Verificar se uma aula está autorizada para um usuário
 app.get('/api/autorizacoes/verificar', async (req, res) => {
   try {
     const { usuarioId, cursoId, aulaId } = req.query;
@@ -2964,78 +2975,103 @@ app.get('/api/autorizacoes/verificar', async (req, res) => {
     console.log(`🔍 Verificando autorização - Usuário:${usuarioId}, Curso:${cursoId}, Aula:${aulaId}`);
     
     if (!usuarioId || !cursoId || !aulaId) {
-      return res.status(400).json({
-        success: false,
-        error: 'Parâmetros incompletos',
-        details: 'Forneça usuarioId, cursoId e aulaId'
+      return formatarRespostaErro(res, 400, 'Parâmetros incompletos', 'Forneça usuarioId, cursoId e aulaId');
+    }
+    
+    const usuarioIdInt = parseInt(usuarioId);
+    const cursoIdInt = parseInt(cursoId);
+    const aulaIdInt = parseInt(aulaId);
+    
+    // Verificar se a aula já foi concluída (permite revisão)
+    const progresso = await prisma.progressoAula.findFirst({
+      where: {
+        usuarioId: usuarioIdInt,
+        aulaId: aulaIdInt,
+        concluida: true
+      }
+    });
+    
+    if (progresso) {
+      return res.json({
+        success: true,
+        autorizada: true,
+        motivo: 'Aula já concluída',
+        permiteRevisao: true
       });
     }
     
-    // 1. Verificar se há autorização específica para esta aula
-    const autorizacaoEspecifica = await prisma.autorizacaoAula.findFirst({
+    // Verificar autorizações ativas
+    const autorizacoes = await prisma.autorizacaoAula.findMany({
       where: {
-        usuarioId: parseInt(usuarioId),
-        cursoId: parseInt(cursoId),
-        aulaId: parseInt(aulaId),
+        usuarioId: usuarioIdInt,
+        cursoId: cursoIdInt,
         ativo: true,
         OR: [
           { dataExpiracao: null },
           { dataExpiracao: { gt: new Date() } }
+        ],
+        OR: [
+          // Autorização específica para esta aula
+          { 
+            AND: [
+              { aulaId: aulaIdInt },
+              { OR: [
+                { tipo: 'liberar_aula' },
+                { tipo: 'liberar_todas' }
+              ]}
+            ]
+          },
+          // Autorização para o módulo inteiro
+          {
+            AND: [
+              { moduloId: { not: null } },
+              { OR: [
+                { tipo: 'liberar_modulo' },
+                { tipo: 'liberar_todas' }
+              ]}
+            ]
+          },
+          // Autorização para todo o curso
+          { tipo: 'liberar_todas' }
         ]
-      }
-    });
-    
-    // 2. Verificar se há autorização para o módulo inteiro
-    const aula = await prisma.aula.findUnique({
-      where: { id: parseInt(aulaId) },
-      select: { moduloId: true }
-    });
-    
-    let autorizacaoModulo = null;
-    if (aula?.moduloId) {
-      autorizacaoModulo = await prisma.autorizacaoAula.findFirst({
-        where: {
-          usuarioId: parseInt(usuarioId),
-          cursoId: parseInt(cursoId),
-          moduloId: aula.moduloId,
-          ativo: true,
-          OR: [
-            { tipo: 'liberar_modulo' },
-            { tipo: 'liberar_todas' }
-          ],
-          OR: [
-            { dataExpiracao: null },
-            { dataExpiracao: { gt: new Date() } }
-          ]
+      },
+      include: {
+        aula: {
+          select: { moduloId: true }
         }
-      });
-    }
-    
-    // 3. Verificar se há autorização para todo o curso
-    const autorizacaoCurso = await prisma.autorizacaoAula.findFirst({
-      where: {
-        usuarioId: parseInt(usuarioId),
-        cursoId: parseInt(cursoId),
-        tipo: 'liberar_todas',
-        ativo: true,
-        OR: [
-          { dataExpiracao: null },
-          { dataExpiracao: { gt: new Date() } }
-        ]
-      }
     });
     
-    const autorizada = !!(autorizacaoEspecifica || autorizacaoModulo || autorizacaoCurso);
+    // Se houver autorização para o módulo, verificar se esta aula pertence ao módulo
+    const autorizacaoModulo = autorizacoes.find(a => a.tipo === 'liberar_modulo' && a.moduloId);
+    let autorizadaPorModulo = false;
     
-    console.log(`📊 Resultado verificação: ${autorizada ? '✅ AUTORIZADA' : '❌ NÃO AUTORIZADA'}`);
+    if (autorizacaoModulo?.moduloId) {
+      const aula = await prisma.aula.findUnique({
+        where: { id: aulaIdInt },
+        select: { moduloId: true }
+      });
+      
+      if (aula?.moduloId === autorizacaoModulo.moduloId) {
+        autorizadaPorModulo = true;
+      }
+    }
+    
+    const autorizada = autorizacoes.some(a => 
+      a.tipo === 'liberar_todas' || 
+      (a.tipo === 'liberar_aula' && a.aulaId === aulaIdInt) ||
+      autorizadaPorModulo
+    );
+    
+    console.log(`📊 Resultado: ${autorizada ? '✅ AUTORIZADA' : '❌ NÃO AUTORIZADA'}`);
     
     res.json({
       success: true,
       autorizada,
       detalhes: {
-        especifica: !!autorizacaoEspecifica,
-        modulo: !!autorizacaoModulo,
-        curso: !!autorizacaoCurso
+        totalAutorizacoes: autorizacoes.length,
+        especifica: autorizacoes.some(a => a.tipo === 'liberar_aula' && a.aulaId === aulaIdInt),
+        modulo: autorizadaPorModulo,
+        curso: autorizacoes.some(a => a.tipo === 'liberar_todas')
       }
     });
     
@@ -3048,17 +3084,14 @@ app.get('/api/autorizacoes/verificar', async (req, res) => {
   }
 });
 
-// ========== NOVO ENDPOINT: Listar autorizações do usuário ========== //
+// ✅ 2. Listar autorizações de um usuário para um curso
 app.get('/api/autorizacoes/usuario/:usuarioId/curso/:cursoId', async (req, res) => {
   try {
     const usuarioId = validateId(req.params.usuarioId);
     const cursoId = validateId(req.params.cursoId);
     
     if (!usuarioId || !cursoId) {
-      return res.status(400).json({
-        success: false,
-        error: 'IDs inválidos'
-      });
+      return formatarRespostaErro(res, 400, 'IDs inválidos');
     }
     
     const autorizacoes = await prisma.autorizacaoAula.findMany({
@@ -3070,6 +3103,17 @@ app.get('/api/autorizacoes/usuario/:usuarioId/curso/:cursoId', async (req, res) 
           { dataExpiracao: null },
           { dataExpiracao: { gt: new Date() } }
         ]
+      },
+      include: {
+        aula: {
+          select: { titulo: true }
+        },
+        modulo: {
+          select: { titulo: true }
+        },
+        admin: {
+          select: { nome: true }
+        }
       },
       orderBy: { criadoEm: 'desc' }
     });
@@ -3084,6 +3128,514 @@ app.get('/api/autorizacoes/usuario/:usuarioId/curso/:cursoId', async (req, res) 
     res.status(500).json({
       success: false,
       error: 'Erro ao buscar autorizações'
+    });
+  }
+});
+
+// ✅ 3. Criar autorização manualmente (admin)
+app.post('/api/autorizacoes', async (req, res) => {
+  try {
+    const { 
+      tipo, 
+      usuarioId, 
+      cursoId, 
+      aulaId, 
+      moduloId, 
+      motivo, 
+      dataExpiracao, 
+      adminId 
+    } = req.body;
+    
+    console.log(`📝 Criando autorização - Tipo: ${tipo}, Usuário: ${usuarioId}`);
+    
+    // Validações
+    if (!tipo || !usuarioId || !cursoId || !adminId) {
+      return formatarRespostaErro(res, 400, 'Dados incompletos', 'Forneça tipo, usuarioId, cursoId e adminId');
+    }
+    
+    if (!['liberar_aula', 'liberar_modulo', 'liberar_todas', 'bloquear_progresso'].includes(tipo)) {
+      return formatarRespostaErro(res, 400, 'Tipo inválido', 'Tipos válidos: liberar_aula, liberar_modulo, liberar_todas, bloquear_progresso');
+    }
+    
+    if (tipo === 'liberar_aula' && !aulaId) {
+      return formatarRespostaErro(res, 400, 'Aula não especificada', 'Para tipo liberar_aula, forneça aulaId');
+    }
+    
+    if (tipo === 'liberar_modulo' && !moduloId) {
+      return formatarRespostaErro(res, 400, 'Módulo não especificado', 'Para tipo liberar_modulo, forneça moduloId');
+    }
+    
+    // Verificar se já existe autorização similar ativa
+    const whereClause = {
+      usuarioId: parseInt(usuarioId),
+      cursoId: parseInt(cursoId),
+      tipo,
+      ativo: true,
+      OR: [
+        { dataExpiracao: null },
+        { dataExpiracao: { gt: new Date() } }
+      ]
+    };
+    
+    if (tipo === 'liberar_aula') {
+      whereClause.aulaId = parseInt(aulaId);
+    } else if (tipo === 'liberar_modulo') {
+      whereClause.moduloId = parseInt(moduloId);
+    }
+    
+    const autorizacaoExistente = await prisma.autorizacaoAula.findFirst({
+      where: whereClause
+    });
+    
+    if (autorizacaoExistente) {
+      return res.status(409).json({
+        success: false,
+        error: 'Autorização já existe',
+        details: `Já existe uma autorização ${tipo} ativa para este usuário`,
+        autorizacao: autorizacaoExistente
+      });
+    }
+    
+    // Criar autorização
+    const autorizacao = await prisma.autorizacaoAula.create({
+      data: {
+        tipo,
+        usuarioId: parseInt(usuarioId),
+        cursoId: parseInt(cursoId),
+        aulaId: aulaId ? parseInt(aulaId) : null,
+        moduloId: moduloId ? parseInt(moduloId) : null,
+        motivo: motivo || `Autorização concedida pelo administrador`,
+        dataExpiracao: dataExpiracao ? new Date(dataExpiracao) : null,
+        adminId: parseInt(adminId),
+        ativo: true,
+        criadoEm: new Date(),
+        atualizadoEm: new Date()
+      },
+      include: {
+        usuario: {
+          select: { id: true, nome: true, ra: true }
+        },
+        curso: {
+          select: { id: true, titulo: true }
+        },
+        aula: {
+          select: { id: true, titulo: true }
+        },
+        modulo: {
+          select: { id: true, titulo: true }
+        },
+        admin: {
+          select: { nome: true }
+        }
+      }
+    });
+    
+    console.log(`✅ Autorização criada: ${autorizacao.id} (${tipo})`);
+    
+    res.status(201).json({
+      success: true,
+      message: 'Autorização criada com sucesso!',
+      autorizacao
+    });
+    
+  } catch (error) {
+    console.error('❌ Erro ao criar autorização:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Erro ao criar autorização'
+    });
+  }
+});
+
+// ✅ 4. Criar solicitação de autorização (ALUNO)
+app.post('/api/solicitacoes-autorizacao', async (req, res) => {
+  try {
+    const { usuarioId, cursoId, aulaId, moduloId, motivo } = req.body;
+    
+    console.log(`📝 Nova solicitação - Usuário:${usuarioId}, Aula:${aulaId}`);
+    
+    if (!usuarioId || !cursoId || !aulaId) {
+      return formatarRespostaErro(res, 400, 'Dados incompletos', 'Forneça usuarioId, cursoId e aulaId');
+    }
+    
+    const usuarioIdInt = parseInt(usuarioId);
+    const cursoIdInt = parseInt(cursoId);
+    const aulaIdInt = parseInt(aulaId);
+    
+    // Verificar se usuário existe
+    const usuario = await prisma.usuario.findUnique({
+      where: { id: usuarioIdInt }
+    });
+    
+    if (!usuario) {
+      return formatarRespostaErro(res, 404, 'Usuário não encontrado');
+    }
+    
+    // Verificar se curso existe
+    const curso = await prisma.curso.findUnique({
+      where: { id: cursoIdInt }
+    });
+    
+    if (!curso) {
+      return formatarRespostaErro(res, 404, 'Curso não encontrado');
+    }
+    
+    // Verificar se aula existe
+    const aula = await prisma.aula.findUnique({
+      where: { id: aulaIdInt }
+    });
+    
+    if (!aula) {
+      return formatarRespostaErro(res, 404, 'Aula não encontrada');
+    }
+    
+    // Verificar se já existe solicitação pendente
+    const solicitacaoExistente = await prisma.solicitacaoAutorizacao.findFirst({
+      where: {
+        usuarioId: usuarioIdInt,
+        cursoId: cursoIdInt,
+        aulaId: aulaIdInt,
+        status: 'pendente'
+      }
+    });
+    
+    if (solicitacaoExistente) {
+      return res.status(409).json({
+        success: false,
+        error: 'Solicitação já existe',
+        details: 'Já existe uma solicitação pendente para esta aula',
+        solicitacao: solicitacaoExistente
+      });
+    }
+    
+    // Verificar se já existe autorização ativa
+    const autorizacaoExistente = await prisma.autorizacaoAula.findFirst({
+      where: {
+        usuarioId: usuarioIdInt,
+        cursoId: cursoIdInt,
+        aulaId: aulaIdInt,
+        ativo: true,
+        OR: [
+          { dataExpiracao: null },
+          { dataExpiracao: { gt: new Date() } }
+        ]
+      }
+    });
+    
+    if (autorizacaoExistente) {
+      return res.status(409).json({
+        success: false,
+        error: 'Autorização já existe',
+        details: 'Você já tem autorização para esta aula',
+        autorizacao: autorizacaoExistente
+      });
+    }
+    
+    // Criar solicitação
+    const novaSolicitacao = await prisma.solicitacaoAutorizacao.create({
+      data: {
+        usuarioId: usuarioIdInt,
+        cursoId: cursoIdInt,
+        aulaId: aulaIdInt,
+        moduloId: moduloId ? parseInt(moduloId) : aula.moduloId,
+        motivo: motivo || `O aluno ${usuario.nome} solicitou autorização para continuar o curso.`,
+        status: 'pendente',
+        criadoEm: new Date(),
+        atualizadoEm: new Date()
+      },
+      include: {
+        usuario: {
+          select: { id: true, nome: true, ra: true, curso: true }
+        },
+        curso: {
+          select: { id: true, titulo: true, materia: true }
+        },
+        aula: {
+          select: { id: true, titulo: true }
+        }
+      }
+    });
+    
+    console.log(`✅ Solicitação criada: ${novaSolicitacao.id}`);
+    
+    res.status(201).json({
+      success: true,
+      message: 'Solicitação enviada ao administrador! Aguarde aprovação.',
+      solicitacao: novaSolicitacao
+    });
+    
+  } catch (error) {
+    console.error('❌ Erro ao criar solicitação:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Erro ao criar solicitação'
+    });
+  }
+});
+
+// ✅ 5. Aprovar solicitação (ADMIN) - COM TRANSAÇÃO
+app.put('/api/solicitacoes-autorizacao/:id/aprovar', async (req, res) => {
+  try {
+    const solicitacaoId = validateId(req.params.id);
+    const { adminId, motivo, dataExpiracao } = req.body;
+    
+    if (!solicitacaoId || !adminId) {
+      return formatarRespostaErro(res, 400, 'Dados incompletos', 'Forneça solicitacaoId e adminId');
+    }
+    
+    // Usar transação para garantir integridade
+    const result = await prisma.$transaction(async (tx) => {
+      // 1. Buscar solicitação
+      const solicitacao = await tx.solicitacaoAutorizacao.findUnique({
+        where: { id: solicitacaoId },
+        include: {
+          usuario: true,
+          curso: true,
+          aula: true,
+          modulo: true
+        }
+      });
+      
+      if (!solicitacao) {
+        throw new Error('Solicitação não encontrada');
+      }
+      
+      if (solicitacao.status !== 'pendente') {
+        throw new Error(`Solicitação já processada (status: ${solicitacao.status})`);
+      }
+      
+      // 2. Criar autorização
+      const autorizacao = await tx.autorizacaoAula.create({
+        data: {
+          tipo: 'liberar_aula',
+          usuarioId: solicitacao.usuarioId,
+          cursoId: solicitacao.cursoId,
+          aulaId: solicitacao.aulaId,
+          moduloId: solicitacao.moduloId,
+          motivo: motivo || `Aprovado via solicitação #${solicitacao.id}: ${solicitacao.motivo}`,
+          dataExpiracao: dataExpiracao ? new Date(dataExpiracao) : null,
+          adminId: parseInt(adminId),
+          ativo: true,
+          criadoEm: new Date(),
+          atualizadoEm: new Date()
+        },
+        include: {
+          usuario: { select: { nome: true, ra: true } },
+          curso: { select: { titulo: true } },
+          aula: { select: { titulo: true } }
+        }
+      });
+      
+      // 3. Atualizar solicitação
+      const solicitacaoAtualizada = await tx.solicitacaoAutorizacao.update({
+        where: { id: solicitacaoId },
+        data: {
+          status: 'aprovado',
+          motivoRejeicao: null,
+          processadoEm: new Date(),
+          adminId: parseInt(adminId),
+          autorizacaoId: autorizacao.id,
+          atualizadoEm: new Date()
+        },
+        include: {
+          usuario: { select: { nome: true, ra: true } },
+          curso: { select: { titulo: true } },
+          aula: { select: { titulo: true } }
+        }
+      });
+      
+      return { autorizacao, solicitacao: solicitacaoAtualizada };
+    });
+    
+    console.log(`✅ Solicitação ${solicitacaoId} aprovada. Autorização: ${result.autorizacao.id}`);
+    
+    res.json({
+      success: true,
+      message: 'Solicitação aprovada e autorização criada!',
+      solicitacao: result.solicitacao,
+      autorizacao: result.autorizacao
+    });
+    
+  } catch (error) {
+    console.error('❌ Erro ao aprovar solicitação:', error);
+    
+    const statusCode = error.message.includes('não encontrada') ? 404 : 
+                      error.message.includes('já processada') ? 400 : 500;
+    
+    res.status(statusCode).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// ✅ 6. Rejeitar solicitação (ADMIN)
+app.put('/api/solicitacoes-autorizacao/:id/rejeitar', async (req, res) => {
+  try {
+    const solicitacaoId = validateId(req.params.id);
+    const { adminId, motivoRejeicao } = req.body;
+    
+    if (!solicitacaoId || !adminId) {
+      return formatarRespostaErro(res, 400, 'Dados incompletos');
+    }
+    
+    const solicitacao = await prisma.solicitacaoAutorizacao.findUnique({
+      where: { id: solicitacaoId }
+    });
+    
+    if (!solicitacao) {
+      return formatarRespostaErro(res, 404, 'Solicitação não encontrada');
+    }
+    
+    if (solicitacao.status !== 'pendente') {
+      return formatarRespostaErro(res, 400, 'Solicitação já processada');
+    }
+    
+    const solicitacaoAtualizada = await prisma.solicitacaoAutorizacao.update({
+      where: { id: solicitacaoId },
+      data: {
+        status: 'rejeitado',
+        motivoRejeicao: motivoRejeicao || 'Solicitação rejeitada pelo administrador.',
+        processadoEm: new Date(),
+        adminId: parseInt(adminId),
+        atualizadoEm: new Date()
+      },
+      include: {
+        usuario: { select: { nome: true, ra: true } },
+        curso: { select: { titulo: true } }
+      }
+    });
+    
+    console.log(`❌ Solicitação ${solicitacaoId} rejeitada`);
+    
+    res.json({
+      success: true,
+      message: 'Solicitação rejeitada!',
+      solicitacao: solicitacaoAtualizada
+    });
+    
+  } catch (error) {
+    console.error('❌ Erro ao rejeitar solicitação:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Erro ao rejeitar solicitação'
+    });
+  }
+});
+
+// ✅ 7. Listar solicitações pendentes (ADMIN)
+app.get('/api/solicitacoes-autorizacao/pendentes', async (req, res) => {
+  try {
+    const solicitacoes = await prisma.solicitacaoAutorizacao.findMany({
+      where: { status: 'pendente' },
+      include: {
+        usuario: {
+          select: { id: true, nome: true, ra: true, serie: true, curso: true }
+        },
+        curso: {
+          select: { id: true, titulo: true, materia: true }
+        },
+        aula: {
+          select: { id: true, titulo: true }
+        },
+        modulo: {
+          select: { id: true, titulo: true }
+        }
+      },
+      orderBy: { criadoEm: 'desc' },
+      take: 50
+    });
+    
+    res.json({
+      success: true,
+      solicitacoes,
+      total: solicitacoes.length
+    });
+    
+  } catch (error) {
+    console.error('❌ Erro ao buscar solicitações:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Erro ao buscar solicitações'
+    });
+  }
+});
+
+// ✅ 8. Histórico de solicitações por usuário
+app.get('/api/solicitacoes-autorizacao/usuario/:usuarioId', async (req, res) => {
+  try {
+    const usuarioId = validateId(req.params.usuarioId);
+    
+    if (!usuarioId) {
+      return formatarRespostaErro(res, 400, 'ID do usuário inválido');
+    }
+    
+    const solicitacoes = await prisma.solicitacaoAutorizacao.findMany({
+      where: { usuarioId },
+      include: {
+        curso: { select: { titulo: true, materia: true } },
+        aula: { select: { titulo: true } },
+        modulo: { select: { titulo: true } },
+        admin: { select: { nome: true } }
+      },
+      orderBy: { criadoEm: 'desc' },
+      take: 20
+    });
+    
+    res.json({
+      success: true,
+      solicitacoes
+    });
+    
+  } catch (error) {
+    console.error('❌ Erro ao buscar histórico:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Erro ao buscar histórico'
+    });
+  }
+});
+
+// ✅ 9. Desativar autorização (ADMIN)
+app.put('/api/autorizacoes/:id/desativar', async (req, res) => {
+  try {
+    const autorizacaoId = validateId(req.params.id);
+    const { adminId, motivo } = req.body;
+    
+    if (!autorizacaoId || !adminId) {
+      return formatarRespostaErro(res, 400, 'Dados incompletos');
+    }
+    
+    const autorizacao = await prisma.autorizacaoAula.findUnique({
+      where: { id: autorizacaoId }
+    });
+    
+    if (!autorizacao) {
+      return formatarRespostaErro(res, 404, 'Autorização não encontrada');
+    }
+    
+    const autorizacaoAtualizada = await prisma.autorizacaoAula.update({
+      where: { id: autorizacaoId },
+      data: {
+        ativo: false,
+        motivo: motivo ? `${autorizacao.motivo || ''} | Desativado: ${motivo}` : `${autorizacao.motivo || ''} | Desativado pelo admin`,
+        atualizadoEm: new Date()
+      }
+    });
+    
+    console.log(`🚫 Autorização ${autorizacaoId} desativada`);
+    
+    res.json({
+      success: true,
+      message: 'Autorização desativada!',
+      autorizacao: autorizacaoAtualizada
+    });
+    
+  } catch (error) {
+    console.error('❌ Erro ao desativar autorização:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Erro ao desativar autorização'
     });
   }
 });
@@ -3974,6 +4526,7 @@ process.on('SIGTERM', async () => {
 });
 
 startServer();
+
 
 
 
