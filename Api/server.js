@@ -3153,6 +3153,77 @@ app.get('/api/autorizacoes/verificar-simplificado', async (req, res) => {
         });
     }
 });
+
+// ✅ GET VERIFICAÇÃO DE AUTORIZAÇÃO (BLOQUEIO TOTAL)
+app.get('/api/autorizacoes/verificar', async (req, res) => {
+    try {
+        const { usuarioId, cursoId, aulaId } = req.query;
+        
+        console.log(`🔍 Verificação de autorização - Usuário: ${usuarioId}, Curso: ${cursoId}, Aula: ${aulaId}`);
+        
+        // 1. Verificar autorizações específicas
+        const autorizacaoEspecifica = await prisma.autorizacaoAula.findFirst({
+            where: {
+                usuarioId: parseInt(usuarioId),
+                cursoId: parseInt(cursoId),
+                aulaId: parseInt(aulaId),
+                ativo: true,
+                dataExpiracao: {
+                    gte: new Date()
+                }
+            }
+        });
+        
+        // 2. Verificar autorizações em massa
+        const autorizacaoMassa = await prisma.autorizacaoMassa.findFirst({
+            where: {
+                usuarioId: parseInt(usuarioId),
+                cursoId: parseInt(cursoId),
+                OR: [
+                    { tipo: 'liberar_todas' },
+                    { 
+                        tipo: 'liberar_modulo',
+                        modulo: {
+                            aulas: {
+                                some: { id: parseInt(aulaId) }
+                            }
+                        }
+                    },
+                    { tipo: 'liberar_aula', aulaId: parseInt(aulaId) },
+                    { tipo: 'pular_aula', aulaId: parseInt(aulaId) }
+                ],
+                ativo: true,
+                dataExpiracao: {
+                    gte: new Date()
+                }
+            }
+        });
+        
+        const autorizada = !!(autorizacaoEspecifica || autorizacaoMassa);
+        
+        console.log(`📊 Resultado: ${autorizada ? 'AUTORIZADA' : 'BLOQUEADA'}`);
+        
+        res.json({
+            success: true,
+            autorizada: autorizada,
+            possuiAutorizacaoEspecifica: !!autorizacaoEspecifica,
+            possuiAutorizacaoMassa: !!autorizacaoMassa,
+            mensagem: autorizada ? 
+                'Aula autorizada pelo administrador' : 
+                'Aula bloqueada - aguarde autorização do administrador',
+            timestamp: new Date().toISOString()
+        });
+        
+    } catch (error) {
+        console.error('❌ Erro na verificação de autorização:', error);
+        res.status(500).json({
+            success: false,
+            autorizada: false, // Em caso de erro, BLOQUEAR
+            error: 'Erro ao verificar autorização',
+            timestamp: new Date().toISOString()
+        });
+    }
+});
 // ========== SISTEMA DE VÍDEOS ========== //
 
 app.get('/api/videos', async (req, res) => {
@@ -4039,6 +4110,7 @@ process.on('SIGTERM', async () => {
 });
 
 startServer();
+
 
 
 
