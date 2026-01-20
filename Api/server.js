@@ -3224,6 +3224,193 @@ app.get('/api/autorizacoes/verificar', async (req, res) => {
         });
     }
 });
+
+// ✅ POST CRIAR AUTORIZAÇÃO INDIVIDUAL
+app.post('/api/autorizacoes', async (req, res) => {
+    try {
+        const { tipo, usuarioId, cursoId, aulaId, moduloId, motivo, dataExpiracao, adminId, notificarUsuario } = req.body;
+        
+        console.log(`🔓 Criando autorização: ${tipo} para usuário ${usuarioId}`);
+        
+        // Validar dados
+        if (!tipo || !usuarioId || !cursoId || !adminId) {
+            return res.status(400).json({
+                success: false,
+                error: 'Dados incompletos'
+            });
+        }
+        
+        // Verificar se o usuário existe
+        const usuario = await prisma.usuario.findUnique({
+            where: { id: parseInt(usuarioId) }
+        });
+        
+        if (!usuario) {
+            return res.status(404).json({
+                success: false,
+                error: 'Usuário não encontrado'
+            });
+        }
+        
+        // Verificar se o curso existe
+        const curso = await prisma.curso.findUnique({
+            where: { id: parseInt(cursoId) }
+        });
+        
+        if (!curso) {
+            return res.status(404).json({
+                success: false,
+                error: 'Curso não encontrado'
+            });
+        }
+        
+        // Criar autorização
+        const autorizacao = await prisma.autorizacaoAula.create({
+            data: {
+                tipo: tipo,
+                usuarioId: parseInt(usuarioId),
+                cursoId: parseInt(cursoId),
+                aulaId: aulaId ? parseInt(aulaId) : null,
+                moduloId: moduloId ? parseInt(moduloId) : null,
+                motivo: motivo || null,
+                dataExpiracao: dataExpiracao ? new Date(dataExpiracao) : null,
+                adminId: parseInt(adminId),
+                ativo: true,
+                criadoEm: new Date(),
+                atualizadoEm: new Date()
+            }
+        });
+        
+        // Se necessário, notificar o usuário (implementação futura)
+        if (notificarUsuario) {
+            console.log(`📧 Notificação para usuário ${usuario.nome} criada`);
+            // Aqui você implementaria o sistema de notificações
+        }
+        
+        console.log(`✅ Autorização criada: ${autorizacao.id}`);
+        
+        res.status(201).json({
+            success: true,
+            message: 'Autorização criada com sucesso!',
+            autorizacao: autorizacao
+        });
+        
+    } catch (error) {
+        console.error('❌ Erro ao criar autorização:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Erro ao criar autorização'
+        });
+    }
+});
+
+// ✅ PUT REVOGAR AUTORIZAÇÃO
+app.put('/api/autorizacoes/:id/revogar', async (req, res) => {
+    try {
+        const authId = validateId(req.params.id);
+        if (!authId) {
+            return res.status(400).json({
+                success: false,
+                error: 'ID da autorização inválido'
+            });
+        }
+        
+        const { adminId } = req.body;
+        
+        const autorizacao = await prisma.autorizacaoAula.findUnique({
+            where: { id: authId }
+        });
+        
+        if (!autorizacao) {
+            return res.status(404).json({
+                success: false,
+                error: 'Autorização não encontrada'
+            });
+        }
+        
+        // Revogar autorização
+        const autorizacaoRevogada = await prisma.autorizacaoAula.update({
+            where: { id: authId },
+            data: {
+                ativo: false,
+                atualizadoEm: new Date()
+            }
+        });
+        
+        console.log(`✅ Autorização ${authId} revogada por admin ${adminId}`);
+        
+        res.json({
+            success: true,
+            message: 'Autorização revogada com sucesso!',
+            autorizacao: autorizacaoRevogada
+        });
+        
+    } catch (error) {
+        console.error('❌ Erro ao revogar autorização:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Erro ao revogar autorização'
+        });
+    }
+});
+
+// ✅ GET HISTÓRICO DE AUTORIZAÇÕES COM PAGINAÇÃO
+app.get('/api/autorizacoes/historico', async (req, res) => {
+    try {
+        const { page = 1, limit = 10 } = req.query;
+        const skip = (parseInt(page) - 1) * parseInt(limit);
+        
+        const [autorizacoes, total] = await Promise.all([
+            prisma.autorizacaoAula.findMany({
+                include: {
+                    usuario: {
+                        select: {
+                            id: true,
+                            nome: true,
+                            ra: true
+                        }
+                    },
+                    curso: {
+                        select: {
+                            id: true,
+                            titulo: true,
+                            materia: true
+                        }
+                    },
+                    admin: {
+                        select: {
+                            id: true,
+                            nome: true
+                        }
+                    }
+                },
+                orderBy: { criadoEm: 'desc' },
+                take: parseInt(limit),
+                skip: skip
+            }),
+            prisma.autorizacaoAula.count()
+        ]);
+        
+        const totalPages = Math.ceil(total / parseInt(limit));
+        
+        res.json({
+            success: true,
+            autorizacoes: autorizacoes,
+            total: total,
+            page: parseInt(page),
+            limit: parseInt(limit),
+            pages: totalPages
+        });
+        
+    } catch (error) {
+        console.error('❌ Erro ao carregar histórico:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Erro ao carregar histórico'
+        });
+    }
+});
+
 // ========== SISTEMA DE VÍDEOS ========== //
 
 app.get('/api/videos', async (req, res) => {
@@ -4110,6 +4297,7 @@ process.on('SIGTERM', async () => {
 });
 
 startServer();
+
 
 
 
