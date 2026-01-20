@@ -331,10 +331,44 @@ model SolicitacaoAutorizacao {
   aula     Aula    @relation(fields: [aulaId], references: [id])
   modulo   Modulo? @relation(fields: [moduloId], references: [id])
   admin    Usuario? @relation("AdminSolicitacoes", fields: [adminId], references: [id])
-  
+  autorizacao   AutorizacaoAula? @relation(fields: [autorizacaoId], references: [id])
+
   @@index([usuarioId])
   @@index([cursoId])
   @@index([aulaId])
   @@index([status])
   @@index([criadoEm])
+}
+
+model AutorizacaoAula {
+  id             Int      @id @default(autoincrement())
+  tipo           String   // "liberar_aula", "liberar_modulo", "liberar_todas", "bloquear_progresso"
+  usuarioId      Int
+  cursoId        Int
+  aulaId         Int?
+  moduloId       Int?
+  motivo         String?
+  dataExpiracao  DateTime?
+  adminId        Int
+  ativo          Boolean  @default(true)
+  criadoEm       DateTime @default(now())
+  atualizadoEm   DateTime @updatedAt
+  
+  // Relações
+  usuario   Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  curso     Curso    @relation(fields: [cursoId], references: [id], onDelete: Cascade)
+  aula      Aula?    @relation(fields: [aulaId], references: [id], onDelete: Cascade)
+  modulo    Modulo?  @relation(fields: [moduloId], references: [id], onDelete: Cascade)
+  admin     Usuario  @relation("AdminAutorizacoes", fields: [adminId], references: [id])
+
+
+  solicitacoes SolicitacaoAutorizacao[]
+  
+  @@index([usuarioId])
+  @@index([cursoId])
+  @@index([aulaId])
+  @@index([moduloId])
+  @@index([ativo])
+  @@index([dataExpiracao])
+  @@map("autorizacoes_aula")
 }
