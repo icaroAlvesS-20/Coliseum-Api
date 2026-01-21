@@ -4017,6 +4017,72 @@ app.get('/api/cursos/:cursoId/aulas', async (req, res) => {
     }
 });
 
+app.get('/api/solicitacoes-autorizacao/pendentes', async (req, res) => {
+    try {
+        console.log('📋 Buscando solicitações pendentes...');
+        
+        const solicitacoes = await prisma.solicitacaoAutorizacao.findMany({
+            where: { 
+                status: 'pendente' 
+            },
+            include: {
+                usuario: {
+                    select: { 
+                        id: true, 
+                        nome: true, 
+                        ra: true, 
+                        serie: true, 
+                        curso: true 
+                    }
+                },
+                curso: {
+                    select: { 
+                        id: true, 
+                        titulo: true, 
+                        materia: true 
+                    }
+                },
+                aula: {
+                    select: { 
+                        id: true, 
+                        titulo: true 
+                    }
+                },
+                modulo: {
+                    select: { 
+                        id: true, 
+                        titulo: true 
+                    }
+                },
+                admin: {
+                    select: { 
+                        nome: true 
+                    }
+                }
+            },
+            orderBy: { 
+                criadoEm: 'desc' 
+            },
+            take: 50
+        });
+        
+        console.log(`✅ ${solicitacoes.length} solicitações pendentes encontradas`);
+        
+        res.json({
+            success: true,
+            solicitacoes: solicitacoes,
+            total: solicitacoes.length
+        });
+        
+    } catch (error) {
+        console.error('❌ Erro ao buscar solicitações:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Erro ao buscar solicitações pendentes',
+            details: process.env.NODE_ENV === 'development' ? error.message : 'Erro interno'
+        });
+    }
+});
 // ========== SISTEMA DE VÍDEOS ========== //
 
 app.get('/api/videos', async (req, res) => {
@@ -4903,4 +4969,5 @@ process.on('SIGTERM', async () => {
 });
 
 startServer();
+
 
