@@ -3640,6 +3640,42 @@ app.put('/api/autorizacoes/:id/desativar', async (req, res) => {
   }
 });
 
+app.get('/api/solicitacoes-autorizacao/pendentes', async (req, res) => {
+    try {
+        const solicitacoes = await prisma.solicitacaoAutorizacao.findMany({
+            where: { status: 'pendente' },
+            include: {
+                usuario: {
+                    select: { id: true, nome: true, ra: true, serie: true, curso: true }
+                },
+                curso: {
+                    select: { id: true, titulo: true, materia: true }
+                },
+                aula: {
+                    select: { id: true, titulo: true }
+                },
+                modulo: {
+                    select: { id: true, titulo: true }
+                }
+            },
+            orderBy: { criadoEm: 'desc' },
+            take: 50
+        });
+        
+        res.json({
+            success: true,
+            solicitacoes,
+            total: solicitacoes.length
+        });
+        
+    } catch (error) {
+        console.error('❌ Erro ao buscar solicitações:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Erro ao buscar solicitações'
+        });
+    }
+});
 // ========== SISTEMA DE AUTORIZAÇÃO - ENDPOINTS ========== //
 
 // ✅ GET STATUS DO SISTEMA DE AUTORIZAÇÃO
@@ -4867,3 +4903,4 @@ process.on('SIGTERM', async () => {
 });
 
 startServer();
+
