@@ -3566,6 +3566,7 @@ app.post('/api/solicitacoes-autorizacao', async (req, res) => {
 });
 
 // ✅ 7. LISTAR SOLICITAÇÕES PENDENTES (ADMIN)
+// ✅ 7. LISTAR SOLICITAÇÕES PENDENTES (ADMIN) - VERIFIQUE SE ESTÁ NO SERVER.JS
 app.get('/api/solicitacoes-autorizacao/pendentes', async (req, res) => {
     try {
         console.log('📋 Buscando solicitações pendentes...');
@@ -3632,7 +3633,6 @@ app.get('/api/solicitacoes-autorizacao/pendentes', async (req, res) => {
         });
     }
 });
-
 // ✅ 8. APROVAR SOLICITAÇÃO (ADMIN)
 app.put('/api/solicitacoes-autorizacao/:id/aprovar', async (req, res) => {
     try {
@@ -4971,6 +4971,7 @@ process.on('SIGTERM', async () => {
 });
 
 startServer();
+
 
 
 
