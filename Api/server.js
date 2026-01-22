@@ -3884,6 +3884,191 @@ app.delete('/api/solicitacoes-autorizacao/:id', async (req, res) => {
     }
 });
 
+// ✅ SOLICITAÇÃO AUTOMÁTICA AO COMPLETAR AULA
+app.post('/api/solicitacoes/automatica', async (req, res) => {
+    try {
+        const { usuarioId, cursoId, aulaConcluidaId } = req.body;
+        
+        console.log(`🤖 SOLICITAÇÃO AUTOMÁTICA: Usuário ${usuarioId} concluiu aula ${aulaConcluidaId} no curso ${cursoId}`);
+        
+        if (!usuarioId || !cursoId || !aulaConcluidaId) {
+            return res.status(400).json({
+                success: false,
+                error: 'Dados incompletos'
+            });
+        }
+        
+        // 1. Encontrar a próxima aula
+        const aulaConcluida = await prisma.aula.findUnique({
+            where: { id: parseInt(aulaConcluidaId) },
+            include: {
+                modulo: {
+                    include: {
+                        curso: true,
+                        aulas: {
+                            where: { ativo: true },
+                            orderBy: { ordem: 'asc' }
+                        }
+                    }
+                }
+            }
+        });
+        
+        if (!aulaConcluida) {
+            return res.status(404).json({
+                success: false,
+                error: 'Aula concluída não encontrada'
+            });
+        }
+        
+        const { modulo } = aulaConcluida;
+        let proximaAula = null;
+        
+        // Procurar próxima aula no mesmo módulo
+        for (let i = 0; i < modulo.aulas.length; i++) {
+            if (modulo.aulas[i].id === parseInt(aulaConcluidaId)) {
+                if (i + 1 < modulo.aulas.length) {
+                    proximaAula = modulo.aulas[i + 1];
+                    break;
+                }
+            }
+        }
+        
+        // Se não tem próxima aula no módulo, verificar próximo módulo
+        if (!proximaAula) {
+            const proximoModulo = await prisma.modulo.findFirst({
+                where: {
+                    cursoId: parseInt(cursoId),
+                    ordem: modulo.ordem + 1,
+                    ativo: true
+                },
+                include: {
+                    aulas: {
+                        where: { ativo: true },
+                        orderBy: { ordem: 'asc' }
+                    }
+                },
+                orderBy: { ordem: 'asc' }
+            });
+            
+            if (proximoModulo && proximoModulo.aulas.length > 0) {
+                proximaAula = proximoModulo.aulas[0];
+            }
+        }
+        
+        if (!proximaAula) {
+            console.log('📭 Não há próxima aula disponível');
+            return res.json({
+                success: true,
+                message: 'Não há próxima aula para solicitar',
+                proximaAula: null
+            });
+        }
+        
+        // 2. Verificar se já existe solicitação pendente
+        const solicitacaoExistente = await prisma.solicitacaoAutorizacao.findFirst({
+            where: {
+                usuarioId: parseInt(usuarioId),
+                cursoId: parseInt(cursoId),
+                aulaId: proximaAula.id,
+                status: 'pendente'
+            }
+        });
+        
+        if (solicitacaoExistente) {
+            console.log('ℹ️ Solicitação já existe:', solicitacaoExistente.id);
+            return res.json({
+                success: true,
+                message: 'Solicitação já existe',
+                solicitacao: solicitacaoExistente,
+                proximaAula: proximaAula
+            });
+        }
+        
+        // 3. Verificar se já existe autorização ativa
+        const autorizacaoExistente = await prisma.autorizacaoAula.findFirst({
+            where: {
+                usuarioId: parseInt(usuarioId),
+                cursoId: parseInt(cursoId),
+                aulaId: proximaAula.id,
+                ativo: true,
+                OR: [
+                    { dataExpiracao: null },
+                    { dataExpiracao: { gt: new Date() } }
+                ]
+            }
+        });
+        
+        if (autorizacaoExistente) {
+            console.log('✅ Já tem autorização:', autorizacaoExistente.id);
+            return res.json({
+                success: true,
+                message: 'Usuário já tem autorização para esta aula',
+                autorizacao: autorizacaoExistente,
+                proximaAula: proximaAula
+            });
+        }
+        
+        // 4. Verificar se a próxima aula é a primeira do módulo
+        const isPrimeiraAulaProximo = proximaAula.ordem === 1;
+        
+        // 5. Criar solicitação automática
+        const motivo = isPrimeiraAulaProximo 
+            ? `🎓 Aluno completou a última aula do módulo anterior. Pronto para iniciar novo módulo: "${proximaAula.titulo}".`
+            : `📚 Aluno completou a aula anterior "${aulaConcluida.titulo}". Pronto para continuar: "${proximaAula.titulo}".`;
+        
+        const novaSolicitacao = await prisma.solicitacaoAutorizacao.create({
+            data: {
+                tipo: 'automatica',
+                usuarioId: parseInt(usuarioId),
+                cursoId: parseInt(cursoId),
+                aulaId: proximaAula.id,
+                moduloId: proximaAula.moduloId,
+                motivo: motivo,
+                status: 'pendente',
+                criadoEm: new Date(),
+                atualizadoEm: new Date()
+            },
+            include: {
+                usuario: {
+                    select: { nome: true, ra: true, curso: true }
+                },
+                curso: {
+                    select: { titulo: true }
+                },
+                aula: {
+                    select: { titulo: true, ordem: true }
+                },
+                modulo: {
+                    select: { titulo: true, ordem: true }
+                }
+            }
+        });
+        
+        console.log(`✅ Solicitação automática criada: ${novaSolicitacao.id}`);
+        console.log(`📤 Próxima aula: "${proximaAula.titulo}"`);
+        
+        res.status(201).json({
+            success: true,
+            message: 'Solicitação automática criada com sucesso!',
+            solicitacao: novaSolicitacao,
+            proximaAula: {
+                id: proximaAula.id,
+                titulo: proximaAula.titulo,
+                moduloTitulo: modulo.titulo,
+                isPrimeiraAulaProximo: isPrimeiraAulaProximo
+            }
+        });
+        
+    } catch (error) {
+        console.error('❌ Erro na solicitação automática:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Erro na solicitação automática'
+        });
+    }
+});
+
 // ✅ 12. LISTAR TODAS AS AUTORIZAÇÕES (ADMIN)
 app.get('/api/autorizacoes', async (req, res) => {
     try {
@@ -4961,6 +5146,7 @@ process.on('SIGTERM', async () => {
 });
 
 startServer();
+
 
 
 
