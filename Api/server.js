@@ -2968,7 +2968,6 @@ function formatarRespostaErro(res, status, mensagem, detalhes = null) {
 
 
 // ========== SISTEMA DE AUTORIZAÇÃO  ========== //
-// ========== SISTEMA DE AUTORIZAÇÃO - ENDPOINTS COMPLETOS ========== //
 
 // ✅ 1. VERIFICAR AUTORIZAÇÃO DE UMA AULA (FRONTEND)
 app.get('/api/autorizacoes/verificar/:usuarioId/:cursoId/:aulaId', async (req, res) => {
@@ -3565,8 +3564,7 @@ app.post('/api/solicitacoes-autorizacao', async (req, res) => {
     }
 });
 
-// ✅ 7. LISTAR SOLICITAÇÕES PENDENTES (ADMIN)
-// ✅ 7. LISTAR SOLICITAÇÕES PENDENTES (ADMIN) - VERIFIQUE SE ESTÁ NO SERVER.JS
+// ✅ GET LISTAR SOLICITAÇÕES PENDENTES (ADMIN)
 app.get('/api/solicitacoes-autorizacao/pendentes', async (req, res) => {
     try {
         console.log('📋 Buscando solicitações pendentes...');
@@ -3633,7 +3631,7 @@ app.get('/api/solicitacoes-autorizacao/pendentes', async (req, res) => {
         });
     }
 });
-// ✅ 8. APROVAR SOLICITAÇÃO (ADMIN)
+
 app.put('/api/solicitacoes-autorizacao/:id/aprovar', async (req, res) => {
     try {
         const solicitacaoId = validateId(req.params.id);
@@ -4971,6 +4969,7 @@ process.on('SIGTERM', async () => {
 });
 
 startServer();
+
 
 
 
