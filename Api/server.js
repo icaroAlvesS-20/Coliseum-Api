@@ -3624,6 +3624,69 @@ app.get('/api/solicitacoes-autorizacao/pendentes', async (req, res) => {
     }
 });
 
+// ✅ LISTAR SOLICITAÇÕES AUTOMÁTICAS (ADMIN)
+app.get('/api/solicitacoes/automaticas/pendentes', async (req, res) => {
+    try {
+        console.log('🤖 Buscando solicitações automáticas pendentes...');
+        
+        const solicitacoes = await prisma.solicitacaoAutorizacao.findMany({
+            where: { 
+                tipo: 'automatica',
+                status: 'pendente'
+            },
+            include: {
+                usuario: {
+                    select: { 
+                        id: true, 
+                        nome: true, 
+                        ra: true, 
+                        serie: true, 
+                        curso: true 
+                    }
+                },
+                curso: {
+                    select: { 
+                        id: true, 
+                        titulo: true 
+                    }
+                },
+                aula: {
+                    select: { 
+                        id: true, 
+                        titulo: true,
+                        ordem: true
+                    }
+                },
+                modulo: {
+                    select: { 
+                        id: true, 
+                        titulo: true,
+                        ordem: true
+                    }
+                }
+            },
+            orderBy: { 
+                criadoEm: 'asc' 
+            }
+        });
+        
+        console.log(`✅ ${solicitacoes.length} solicitações automáticas encontradas`);
+        
+        res.json({
+            success: true,
+            solicitacoes: solicitacoes,
+            total: solicitacoes.length
+        });
+        
+    } catch (error) {
+        console.error('❌ Erro ao buscar solicitações automáticas:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Erro ao buscar solicitações'
+        });
+    }
+});
+
 app.put('/api/solicitacoes-autorizacao/:id/aprovar', async (req, res) => {
     try {
         const solicitacaoId = validateId(req.params.id);
@@ -5146,6 +5209,7 @@ process.on('SIGTERM', async () => {
 });
 
 startServer();
+
 
 
 
