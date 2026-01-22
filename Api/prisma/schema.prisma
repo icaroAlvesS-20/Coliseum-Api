@@ -326,7 +326,7 @@ model SolicitacaoAutorizacao {
   processadoEm    DateTime?
   atualizadoEm    DateTime @updatedAt
   
-  usuario  Usuario @relation(fields: [usuarioId], references: [id])
+  usuario  Usuario @relation("SolicitacoesUsuario", fields: [usuarioId], references: [id])
   curso    Curso   @relation(fields: [cursoId], references: [id])
   aula     Aula    @relation(fields: [aulaId], references: [id])
   modulo   Modulo? @relation(fields: [moduloId], references: [id])
@@ -354,13 +354,11 @@ model AutorizacaoAula {
   criadoEm       DateTime @default(now())
   atualizadoEm   DateTime @updatedAt
   
-  // Relações
-  usuario   Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  usuario   Usuario  @relation("UsuarioAutorizacoes", fields: [usuarioId], references: [id], onDelete: Cascade)
   curso     Curso    @relation(fields: [cursoId], references: [id], onDelete: Cascade)
   aula      Aula?    @relation(fields: [aulaId], references: [id], onDelete: Cascade)
   modulo    Modulo?  @relation(fields: [moduloId], references: [id], onDelete: Cascade)
   admin     Usuario  @relation("AdminAutorizacoes", fields: [adminId], references: [id])
-
 
   solicitacoes SolicitacaoAutorizacao[]
   
@@ -395,8 +393,10 @@ model LogAutorizacao {
   criadoEm        DateTime @default(now())
   
   autorizacao     AutorizacaoAula @relation(fields: [autorizacaoId], references: [id])
-  usuario         Usuario         @relation(fields: [usuarioId], references: [id])
-  admin           Usuario?        @relation(fields: [adminId], references: [id])
+  
+  usuario         Usuario  @relation("LogsUsuario", fields: [usuarioId], references: [id])
+  admin           Usuario? @relation("LogsAdmin", fields: [adminId], references: [id])
   
   @@map("log_autorizacao")
 }
+
