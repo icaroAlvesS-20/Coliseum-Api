@@ -3687,6 +3687,19 @@ app.get('/api/solicitacoes/automaticas/pendentes', async (req, res) => {
     }
 });
 
+app.post('/api/solicitacoes/automatica', async (req, res) => {
+    try {
+        const { usuarioId, cursoId, aulaConcluidaId } = req.body;
+        
+        console.log(`🤖 SOLICITAÇÃO AUTOMÁTICA POST: Usuário ${usuarioId} concluiu aula ${aulaConcluidaId}`);
+        
+        if (!usuarioId || !cursoId || !aulaConcluidaId) {
+            return res.status(400).json({
+                success: false,
+                error: 'Dados incompletos'
+            });
+        }
+      
 app.put('/api/solicitacoes-autorizacao/:id/aprovar', async (req, res) => {
     try {
         const solicitacaoId = validateId(req.params.id);
@@ -5209,6 +5222,7 @@ process.on('SIGTERM', async () => {
 });
 
 startServer();
+
 
 
 
