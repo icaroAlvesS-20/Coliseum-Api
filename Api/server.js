@@ -2951,12 +2951,6 @@ app.get('/api/progresso/usuarios/:usuarioId/geral', async (req, res) => {
 
 // ========== FUNÇÕES AUXILIARES ========== //
 
-function validateId(id) {
-  if (!id) return null;
-  const parsed = parseInt(id);
-  return isNaN(parsed) ? null : parsed;
-}
-
 function formatarRespostaErro(res, status, mensagem, detalhes = null) {
   return res.status(status).json({
     success: false,
@@ -2964,8 +2958,6 @@ function formatarRespostaErro(res, status, mensagem, detalhes = null) {
     details: detalhes
   });
 }
-
-
 
 // ========== SISTEMA DE AUTORIZAÇÃO  ========== //
 
@@ -4969,6 +4961,7 @@ process.on('SIGTERM', async () => {
 });
 
 startServer();
+
 
 
 
