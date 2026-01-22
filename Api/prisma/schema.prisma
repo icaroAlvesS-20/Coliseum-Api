@@ -32,11 +32,17 @@ model Usuario {
   notificacoesRecebidas NotificacaoAmizade[] @relation("notificacoes_usuario")
   notificacoesEnviadas  NotificacaoAmizade[] @relation("notificacoes_remetente")
   
-  // NOVAS RELAÇÕES DE PROGRESSO
   progressoAulas      ProgressoAula[]
   progressoModulos    ProgressoModulo[]
   progressoCursos     ProgressoCurso[]
-  
+
+  solicitacoes       SolicitacaoAutorizacao[]  @relation("SolicitacoesUsuario")
+  autorizacoes       AutorizacaoAula[]         @relation("UsuarioAutorizacoes")
+  adminSolicitacoes  SolicitacaoAutorizacao[]  @relation("AdminSolicitacoes")
+  adminAutorizacoes  AutorizacaoAula[]         @relation("AdminAutorizacoes")
+  logsUsuario        LogAutorizacao[]          @relation("LogsUsuario")
+  logsAdmin          LogAutorizacao[]          @relation("LogsAdmin")
+
   @@map("Usuario")
 }
 
@@ -130,8 +136,11 @@ model Curso {
   ativo     Boolean  @default(true)
   
   modulos   Modulo[]
-  // NOVA RELAÇÃO
   progressos ProgressoCurso[]
+
+  configuracao  ConfiguracaoCurso?  
+  solicitacoes  SolicitacaoAutorizacao[]
+  autorizacoes  AutorizacaoAula[]
 
   criadoEm  DateTime @default(now())
   atualizadoEm DateTime @updatedAt
@@ -149,9 +158,12 @@ model Modulo {
   cursoId   Int
   curso     Curso    @relation(fields: [cursoId], references: [id], onDelete: Cascade)
   aulas     Aula[]
-  // NOVA RELAÇÃO
+
   progressos ProgressoModulo[]
-  
+
+  solicitacoes  SolicitacaoAutorizacao[]
+  autorizacoes  AutorizacaoAula[]
+
   criadoEm  DateTime @default(now())
   atualizadoEm DateTime @updatedAt
   
@@ -174,7 +186,10 @@ model Aula {
   modulo    Modulo   @relation(fields: [moduloId], references: [id], onDelete: Cascade)
   
   progressos ProgressoAula[]
-  
+
+  solicitacoes  SolicitacaoAutorizacao[]
+  autorizacoes  AutorizacaoAula[]
+
   criadoEm  DateTime @default(now())
   atualizadoEm DateTime @updatedAt
   
@@ -361,7 +376,10 @@ model AutorizacaoAula {
   admin     Usuario  @relation("AdminAutorizacoes", fields: [adminId], references: [id])
 
   solicitacoes SolicitacaoAutorizacao[]
-  
+
+  logs  LogAutorizacao[]
+
+
   @@index([usuarioId])
   @@index([cursoId])
   @@index([aulaId])
@@ -399,4 +417,5 @@ model LogAutorizacao {
   
   @@map("log_autorizacao")
 }
+
 
