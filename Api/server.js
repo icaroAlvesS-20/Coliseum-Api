@@ -4357,6 +4357,207 @@ app.get('/api/sistema/autorizacao/estatisticas', async (req, res) => {
     }
 });
 
+app.get('/api/autorizacoes/:usuarioId/:cursoId', async (req, res) => {
+    try {
+        const usuarioId = validateId(req.params.usuarioId);
+        const cursoId = validateId(req.params.cursoId);
+        
+        if (!usuarioId || !cursoId) {
+            return res.status(400).json({
+                success: false,
+                error: 'IDs inválidos'
+            });
+        }
+        
+        console.log(`🔍 Endpoint alternativo - Buscando autorizações para Usuário:${usuarioId}, Curso:${cursoId}`);
+        
+        const autorizacoes = await prisma.autorizacaoAula.findMany({
+            where: {
+                usuarioId: usuarioId,
+                cursoId: cursoId,
+                ativo: true,
+                OR: [
+                    { dataExpiracao: null },
+                    { dataExpiracao: { gt: new Date() } }
+                ]
+            },
+            select: {
+                id: true,
+                tipo: true,
+                aulaId: true,
+                moduloId: true,
+                motivo: true,
+                dataExpiracao: true,
+                criadoEm: true
+            },
+            orderBy: { criadoEm: 'desc' }
+        });
+        
+        console.log(`✅ ${autorizacoes.length} autorizações encontradas`);
+        
+        res.json({
+            success: true,
+            autorizacoes: autorizacoes,
+            total: autorizacoes.length
+        });
+        
+    } catch (error) {
+        console.error('❌ Erro no endpoint alternativo:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Erro ao buscar autorizações',
+            details: process.env.NODE_ENV === 'development' ? error.message : 'Erro interno'
+        });
+    }
+});
+
+// ✅ 17. ENDPOINT GERAL DE SOLICITAÇÕES (FRONTEND)
+app.post('/api/solicitacoes', async (req, res) => {
+    try {
+        console.log('📤 Endpoint /api/solicitacoes recebido');
+        
+        const { 
+            usuarioId, 
+            cursoId, 
+            aulaId, 
+            tipo = 'autorizacao_automatica',
+            motivo, 
+            automatica,
+            aulaTitulo,
+            cursoTitulo
+        } = req.body;
+        
+        console.log('📦 Dados recebidos:', {
+            usuarioId,
+            cursoId,
+            aulaId,
+            tipo,
+            motivo: motivo ? motivo.substring(0, 100) + '...' : 'Sem motivo',
+            automatica
+        });
+        
+        if (!usuarioId || !cursoId || !aulaId) {
+            return res.status(400).json({
+                success: false,
+                error: 'Dados incompletos',
+                details: 'Forneça usuarioId, cursoId e aulaId'
+            });
+        }
+        
+        const usuarioIdInt = parseInt(usuarioId);
+        const cursoIdInt = parseInt(cursoId);
+        const aulaIdInt = parseInt(aulaId);
+        
+        // Verificar se usuário existe
+        const usuario = await prisma.usuario.findUnique({
+            where: { id: usuarioIdInt }
+        });
+        
+        if (!usuario) {
+            return res.status(404).json({
+                success: false,
+                error: 'Usuário não encontrado'
+            });
+        }
+        
+        // Verificar se curso existe
+        const curso = await prisma.curso.findUnique({
+            where: { id: cursoIdInt }
+        });
+        
+        if (!curso) {
+            return res.status(404).json({
+                success: false,
+                error: 'Curso não encontrado'
+            });
+        }
+        
+        // Verificar se aula existe
+        const aula = await prisma.aula.findUnique({
+            where: { id: aulaIdInt },
+            include: { modulo: true }
+        });
+        
+        if (!aula) {
+            return res.status(404).json({
+                success: false,
+                error: 'Aula não encontrada'
+            });
+        }
+        
+        // Verificar se já existe solicitação pendente
+        const solicitacaoExistente = await prisma.solicitacaoAutorizacao.findFirst({
+            where: {
+                usuarioId: usuarioIdInt,
+                cursoId: cursoIdInt,
+                aulaId: aulaIdInt,
+                status: 'pendente'
+            }
+        });
+        
+        if (solicitacaoExistente) {
+            console.log('ℹ️ Solicitação já existe:', solicitacaoExistente.id);
+            return res.status(200).json({
+                success: true,
+                message: 'Solicitação já existe e está pendente',
+                solicitacao: solicitacaoExistente,
+                jaExistia: true
+            });
+        }
+        
+        // Criar motivo se não fornecido
+        const motivoFinal = motivo || 
+            (automatica 
+                ? `🤖 Solicitação automática: Aluno ${usuario.nome} completou aula anterior e aguarda liberação.`
+                : `✍️ Solicitação manual: Aluno ${usuario.nome} solicitou acesso à aula.`);
+        
+        // Criar solicitação
+        const novaSolicitacao = await prisma.solicitacaoAutorizacao.create({
+            data: {
+                tipo: tipo === 'autorizacao_automatica' ? 'automatica' : 'manual',
+                usuarioId: usuarioIdInt,
+                cursoId: cursoIdInt,
+                aulaId: aulaIdInt,
+                moduloId: aula.moduloId,
+                motivo: motivoFinal,
+                status: 'pendente',
+                criadoEm: new Date(),
+                atualizadoEm: new Date()
+            },
+            include: {
+                usuario: {
+                    select: { id: true, nome: true, ra: true }
+                },
+                curso: {
+                    select: { id: true, titulo: true }
+                },
+                aula: {
+                    select: { id: true, titulo: true }
+                }
+            }
+        });
+        
+        console.log(`✅ Solicitação criada via endpoint geral: ${novaSolicitacao.id}`);
+        
+        res.status(201).json({
+            success: true,
+            message: automatica 
+                ? 'Solicitação automática registrada! O administrador será notificado.' 
+                : 'Solicitação enviada ao administrador! Aguarde aprovação.',
+            solicitacao: novaSolicitacao,
+            jaExistia: false
+        });
+        
+    } catch (error) {
+        console.error('❌ Erro no endpoint geral de solicitações:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Erro ao criar solicitação',
+            details: process.env.NODE_ENV === 'development' ? error.message : 'Erro interno'
+        });
+    }
+});
+
 // ========== SISTEMA DE VÍDEOS ========== //
 
 app.get('/api/videos', async (req, res) => {
@@ -5245,4 +5446,5 @@ process.on('SIGTERM', async () => {
 });
 
 startServer();
+
 
