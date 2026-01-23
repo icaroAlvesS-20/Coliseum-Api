@@ -5149,6 +5149,8 @@ app.use('*', (req, res) => {
   });
 });
 
+// ... seu código ...
+
 // ========== CAPTURADOR DE ERROS GLOBAL ========== //
 process.on('uncaughtException', (error) => {
     console.error('❌ UNCAUGHT EXCEPTION:', error.message);
@@ -5222,12 +5224,3 @@ process.on('SIGTERM', async () => {
 });
 
 startServer();
-
-
-
-
-
-
-
-
-
