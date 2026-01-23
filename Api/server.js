@@ -2642,7 +2642,6 @@ app.get('/api/aulas/:id', async (req, res) => {
 
 // ========== SISTEMA DE PROGRESSO ========== //
 
-// ✅ POST SALVAR PROGRESSO DE AULA
 app.post('/api/progresso/aula', async (req, res) => {
   try {
     const { usuarioId, aulaId, concluida } = req.body;
@@ -2682,7 +2681,6 @@ app.post('/api/progresso/aula', async (req, res) => {
       });
     }
 
-    // Verificar se já existe progresso
     const progressoExistente = await prisma.progressoAula.findFirst({
       where: {
         usuarioId: parseInt(usuarioId),
@@ -2693,7 +2691,6 @@ app.post('/api/progresso/aula', async (req, res) => {
     let progresso;
 
     if (progressoExistente) {
-      // Atualizar progresso existente
       progresso = await prisma.progressoAula.update({
         where: { id: progressoExistente.id },
         data: {
@@ -2703,7 +2700,6 @@ app.post('/api/progresso/aula', async (req, res) => {
         }
       });
     } else {
-      // Criar novo progresso
       progresso = await prisma.progressoAula.create({
         data: {
           usuarioId: parseInt(usuarioId),
@@ -2716,7 +2712,6 @@ app.post('/api/progresso/aula', async (req, res) => {
 
     console.log(`✅ Progresso salvo: ${progresso.id}`);
 
-    // Atualizar progresso do módulo e curso
     if (aula.modulo) {
       await atualizarProgressoModulo(parseInt(usuarioId), aula.modulo.id);
     }
@@ -2735,6 +2730,30 @@ app.post('/api/progresso/aula', async (req, res) => {
       details: process.env.NODE_ENV === 'development' ? error.message : 'Erro interno'
     });
   }
+
+setTimeout(async () => {
+    try {
+        if (concluida === true) {
+            console.log(`🚀 Disparando solicitação automática para próxima aula...`);
+            
+            // Chamar endpoint de solicitação automática
+            await fetch(`${req.protocol}://${req.get('host')}/api/solicitacoes/automatica`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'User-Agent': 'Sistema-Solicitacoes-Automaticas/1.0'
+                },
+                body: JSON.stringify({
+                    usuarioId: parseInt(usuarioId),
+                    cursoId: aula.modulo ? aula.modulo.cursoId : parseInt(cursoId),
+                    aulaConcluidaId: parseInt(aulaId)
+                })
+            });
+        }
+    } catch (fetchError) {
+        console.warn('⚠️ Não foi possível criar solicitação automática:', fetchError.message);
+    }
+}, 100);
 });
 
 // ✅ GET PROGRESSO DO USUÁRIO EM UM CURSO
@@ -3795,7 +3814,7 @@ app.post('/api/solicitacoes', async (req, res) => {
     }
 })
   ;
-// ✅ 8. SOLICITAÇÃO AUTOMÁTICA AO COMPLETAR AULA (SISTEMA)
+// ✅ CORREÇÃO CRÍTICA: Endpoint específico para solicitações automáticas
 app.post('/api/solicitacoes/automatica', async (req, res) => {
     console.log('🤖 === SOLICITAÇÃO AUTOMÁTICA RECEBIDA ===');
     console.log('📦 Body recebido:', req.body);
@@ -3813,7 +3832,7 @@ app.post('/api/solicitacoes/automatica', async (req, res) => {
         
         console.log(`🤖 SOLICITAÇÃO AUTOMÁTICA: Usuário ${usuarioId} concluiu aula ${aulaConcluidaId} no curso ${cursoId}`);
         
-        // 1. Encontrar a próxima aula
+        // 1. Buscar informações da aula concluída
         const aulaConcluida = await prisma.aula.findUnique({
             where: { id: parseInt(aulaConcluidaId) },
             include: {
@@ -3837,25 +3856,19 @@ app.post('/api/solicitacoes/automatica', async (req, res) => {
             });
         }
         
-        const { modulo } = aulaConcluida;
+        // 2. Encontrar a PRÓXIMA aula
         let proximaAula = null;
+        const modulo = aulaConcluida.modulo;
         
-        console.log(`🔍 Procurando próxima aula após: ${aulaConcluida.titulo}`);
-        console.log(`📊 Total de aulas no módulo: ${modulo.aulas.length}`);
+        // Procurar no mesmo módulo primeiro
+        const indexAulaAtual = modulo.aulas.findIndex(a => a.id === parseInt(aulaConcluidaId));
         
-        // Procurar próxima aula no mesmo módulo
-        for (let i = 0; i < modulo.aulas.length; i++) {
-            if (modulo.aulas[i].id === parseInt(aulaConcluidaId)) {
-                if (i + 1 < modulo.aulas.length) {
-                    proximaAula = modulo.aulas[i + 1];
-                    console.log(`✅ Próxima aula encontrada no mesmo módulo: ${proximaAula.titulo}`);
-                    break;
-                }
-            }
-        }
-        
-        // Se não tem próxima aula no módulo, verificar próximo módulo
-        if (!proximaAula) {
+        if (indexAulaAtual !== -1 && indexAulaAtual + 1 < modulo.aulas.length) {
+            proximaAula = modulo.aulas[indexAulaAtual + 1];
+            console.log(`✅ Próxima aula encontrada no mesmo módulo: ${proximaAula.titulo}`);
+        } 
+        // Se não tem no mesmo módulo, procurar no próximo módulo
+        else {
             console.log('🔍 Procurando no próximo módulo...');
             const proximoModulo = await prisma.modulo.findFirst({
                 where: {
@@ -3887,50 +3900,97 @@ app.post('/api/solicitacoes/automatica', async (req, res) => {
             });
         }
         
-        console.log(`📤 Criando solicitação para próxima aula: ${proximaAula.titulo}`);
-        
-        // Usar o endpoint unificado de solicitações
-        const solicitacaoResponse = await fetch(`${req.protocol}://${req.get('host')}/api/solicitacoes`, {
-            method: 'POST',
-            headers: { 
-                'Content-Type': 'application/json',
-                'User-Agent': 'Sistema-Solicitacoes-Automaticas/1.0'
-            },
-            body: JSON.stringify({
+        // 3. Verificar se já existe solicitação pendente
+        const solicitacaoExistente = await prisma.solicitacaoAutorizacao.findFirst({
+            where: {
                 usuarioId: parseInt(usuarioId),
                 cursoId: parseInt(cursoId),
                 aulaId: proximaAula.id,
-                tipo: 'automatica',
-                automatica: true,
-                motivo: `Aluno completou a aula "${aulaConcluida.titulo}". Pronto para continuar: "${proximaAula.titulo}".`
-            })
+                status: 'pendente'
+            }
         });
         
-        const solicitacaoData = await solicitacaoResponse.json();
+        if (solicitacaoExistente) {
+            console.log(`⚠️ Solicitação já existe e está pendente: ${solicitacaoExistente.id}`);
+            return res.status(409).json({
+                success: false,
+                error: 'Solicitação já existe',
+                details: 'Já existe uma solicitação pendente para esta aula',
+                solicitacaoId: solicitacaoExistente.id
+            });
+        }
         
-        console.log(`✅ Solicitação criada:`, solicitacaoData);
+        // 4. Criar nova solicitação AUTOMÁTICA
+        const novaSolicitacao = await prisma.solicitacaoAutorizacao.create({
+            data: {
+                tipo: 'automatica',
+                usuarioId: parseInt(usuarioId),
+                cursoId: parseInt(cursoId),
+                aulaId: proximaAula.id,
+                moduloId: proximaAula.moduloId,
+                motivo: `✅ SISTEMA AUTOMÁTICO: Aluno completou a aula "${aulaConcluida.titulo}" e está pronto para continuar com "${proximaAula.titulo}"`,
+                status: 'pendente',
+                automatica: true
+            },
+            include: {
+                usuario: {
+                    select: { id: true, nome: true, ra: true }
+                },
+                curso: {
+                    select: { id: true, titulo: true }
+                },
+                aula: {
+                    select: { id: true, titulo: true }
+                }
+            }
+        });
         
-        res.json({
+        console.log(`✅ Solicitação AUTOMÁTICA criada: ${novaSolicitacao.id}`);
+        console.log(`📧 Detalhes: Usuário ${usuarioId} → Próxima aula: ${proximaAula.titulo}`);
+        
+        try {
+            const usuario = await prisma.usuario.findUnique({
+                where: { id: parseInt(usuarioId) },
+                select: { nome: true }
+            });
+            
+            await prisma.notificacaoAmizade.create({
+                data: {
+                    tipo: 'solicitacao_aula',
+                    usuarioId: 1, // ID do admin
+                    remetenteId: parseInt(usuarioId),
+                    lida: false,
+                    mensagem: `🎯 NOVA SOLICITAÇÃO AUTOMÁTICA: ${usuario?.nome || 'Aluno'} completou "${aulaConcluida.titulo}" e aguarda "${proximaAula.titulo}"`
+                }
+            });
+            console.log('🔔 Notificação criada para o admin');
+        } catch (notifError) {
+            console.warn('⚠️ Não foi possível criar notificação:', notifError.message);
+        }
+        
+        return res.status(201).json({
             success: true,
-            message: 'Solicitação automática processada!',
-            solicitacao: solicitacaoData.solicitacao,
+            message: 'Solicitação automática registrada com sucesso!',
+            solicitacaoId: novaSolicitacao.id,
+            solicitacao: novaSolicitacao,
             proximaAula: {
                 id: proximaAula.id,
-                titulo: proximaAula.titulo,
-                moduloTitulo: modulo.titulo
+                titulo: proximaAula.titulo
             }
         });
         
     } catch (error) {
-        console.error('❌ Erro na solicitação automática:', error);
+        console.error('💥 ERRO INESPERADO:', error);
         console.error('Stack:', error.stack);
-        res.status(500).json({
+        
+        return res.status(500).json({
             success: false,
-            error: 'Erro na solicitação automática',
+            error: 'Erro ao processar solicitação automática',
             details: process.env.NODE_ENV === 'development' ? error.message : 'Erro interno'
         });
     }
 });
+
 // ✅ 9. LISTAR SOLICITAÇÕES PENDENTES (ADMIN)
 app.get('/api/solicitacoes/pendentes', async (req, res) => {
     try {
@@ -5299,6 +5359,7 @@ process.on('SIGTERM', async () => {
 });
 
 startServer();
+
 
 
 
