@@ -3568,19 +3568,18 @@ app.get('/api/autorizacoes', async (req, res) => {
 
 // ✅ 7. CRIAR SOLICITAÇÃO DE AUTORIZAÇÃO - VERSÃO ROBUSTA
 app.post('/api/solicitacoes', async (req, res) => {
-    console.log('\n=== SOLICITAÇÃO RECEBIDA ===');
+    console.log('\n=== SOLICITAÇÃO RECEBIDA (Geral) ===');
+    console.log('📦 Body:', JSON.stringify(req.body, null, 2));
+    console.log('📡 Headers:', req.headers);
     
     try {
-        // Log completo
-        console.log('Body:', JSON.stringify(req.body));
-        
         const { 
             usuarioId, 
             cursoId, 
             aulaId, 
             tipo = 'manual',
             motivo, 
-            automatica = false
+            automatica = false 
         } = req.body;
 
         // VALIDAÇÃO BÁSICA
@@ -3593,93 +3592,150 @@ app.post('/api/solicitacoes', async (req, res) => {
             });
         }
 
-        // VERIFICAÇÕES SIMPLES (evitando consultas complexas)
+        console.log(`📝 Criando solicitação: Tipo=${tipo}, Usuário=${usuarioId}, Aula=${aulaId}`);
+
+        // 1. Verificar se usuário existe
+        const usuario = await prisma.usuario.findUnique({
+            where: { id: parseInt(usuarioId) }
+        });
+        
+        if (!usuario) {
+            console.log(`❌ Usuário não encontrado: ${usuarioId}`);
+            return res.status(404).json({
+                success: false,
+                error: 'Usuário não encontrado'
+            });
+        }
+
+        // 2. Verificar se curso existe
+        const curso = await prisma.curso.findUnique({
+            where: { id: parseInt(cursoId) }
+        });
+        
+        if (!curso) {
+            console.log(`❌ Curso não encontrado: ${cursoId}`);
+            return res.status(404).json({
+                success: false,
+                error: 'Curso não encontrado'
+            });
+        }
+
+        // 3. Verificar se aula existe
+        const aula = await prisma.aula.findUnique({
+            where: { id: parseInt(aulaId) }
+        });
+        
+        if (!aula) {
+            console.log(`❌ Aula não encontrada: ${aulaId}`);
+            return res.status(404).json({
+                success: false,
+                error: 'Aula não encontrada'
+            });
+        }
+
+        // 4. Verificar se já existe solicitação similar pendente
+        const solicitacaoExistente = await prisma.solicitacaoAutorizacao.findFirst({
+            where: {
+                usuarioId: parseInt(usuarioId),
+                cursoId: parseInt(cursoId),
+                aulaId: parseInt(aulaId),
+                status: 'pendente'
+            }
+        });
+
+        if (solicitacaoExistente) {
+            console.log(`⚠️ Solicitação já existe e está pendente: ${solicitacaoExistente.id}`);
+            return res.status(409).json({
+                success: false,
+                error: 'Solicitação já existe',
+                details: 'Já existe uma solicitação pendente para esta aula',
+                solicitacaoId: solicitacaoExistente.id
+            });
+        }
+
+        // 5. Criar nova solicitação
+        const novaSolicitacao = await prisma.solicitacaoAutorizacao.create({
+            data: {
+                tipo: tipo === 'automatica' ? 'automatica' : 'manual',
+                usuarioId: parseInt(usuarioId),
+                cursoId: parseInt(cursoId),
+                aulaId: parseInt(aulaId),
+                moduloId: aula.moduloId,
+                motivo: motivo || `Solicitação ${tipo === 'automatica' ? 'automática' : 'manual'} do usuário ${usuario.nome}`,
+                status: 'pendente',
+                automatica: automatica === true
+            },
+            include: {
+                usuario: {
+                    select: { id: true, nome: true, ra: true }
+                },
+                curso: {
+                    select: { id: true, titulo: true }
+                },
+                aula: {
+                    select: { id: true, titulo: true }
+                }
+            }
+        });
+
+        console.log(`✅ Solicitação criada com sucesso: ${novaSolicitacao.id}`);
+        console.log(`📧 Detalhes: Usuário=${usuario.nome}, Curso=${curso.titulo}, Aula=${aula.titulo}`);
+
+        // 6. Criar notificação para o admin (opcional)
         try {
-            // 1. Verificar se usuário existe (consulta simples)
-            const usuarioExiste = await prisma.usuario.count({
-                where: { id: parseInt(usuarioId) }
-            });
-            
-            if (usuarioExiste === 0) {
-                return res.status(404).json({
-                    success: false,
-                    error: 'Usuário não encontrado'
-                });
-            }
-
-            // 2. Verificar se curso existe
-            const cursoExiste = await prisma.curso.count({
-                where: { id: parseInt(cursoId) }
-            });
-            
-            if (cursoExiste === 0) {
-                return res.status(404).json({
-                    success: false,
-                    error: 'Curso não encontrado'
-                });
-            }
-
-            // 3. Criar solicitação SIMPLES
-            const novaSolicitacao = await prisma.solicitacaoAutorizacao.create({
+            await prisma.notificacaoAmizade.create({
                 data: {
-                    tipo: tipo === 'automatica' ? 'automatica' : 'manual',
-                    usuarioId: parseInt(usuarioId),
-                    cursoId: parseInt(cursoId),
-                    aulaId: parseInt(aulaId),
-                    motivo: motivo || `Solicitação ${tipo} do usuário ${usuarioId}`,
-                    status: 'pendente',
-                    automatica: automatica === true
+                    tipo: 'solicitacao_aula',
+                    usuarioId: 1, // ID do admin
+                    remetenteId: parseInt(usuarioId),
+                    lida: false,
+                    mensagem: `Nova solicitação de aula: ${usuario.nome} para ${aula.titulo}`
                 }
             });
-
-            console.log(`✅ Solicitação criada: ${novaSolicitacao.id}`);
-            
-            return res.status(201).json({
-                success: true,
-                message: automatica 
-                    ? 'Solicitação automática registrada!' 
-                    : 'Solicitação enviada ao administrador!',
-                solicitacaoId: novaSolicitacao.id,
-                tipo: novaSolicitacao.tipo
-            });
-
-        } catch (dbError) {
-            console.error('❌ Erro no banco:', dbError);
-            
-            if (dbError.message.includes('does not exist') || dbError.code === '42P01') {
-                return res.status(200).json({
-                    success: true,
-                    message: 'Sistema em desenvolvimento - Solicitação registrada em memória',
-                    debug: 'Tabela não existe ainda'
-                });
-            }
-            
-            throw dbError;
+            console.log('🔔 Notificação criada para o admin');
+        } catch (notifError) {
+            console.warn('⚠️ Não foi possível criar notificação:', notifError.message);
         }
+
+        return res.status(201).json({
+            success: true,
+            message: automatica 
+                ? 'Solicitação automática registrada!' 
+                : 'Solicitação enviada ao administrador!',
+            solicitacaoId: novaSolicitacao.id,
+            solicitacao: novaSolicitacao,
+            tipo: novaSolicitacao.tipo
+        });
 
     } catch (error) {
         console.error('💥 ERRO INESPERADO:', error);
+        console.error('Stack:', error.stack);
         
-        return res.status(200).json({
-            success: true,
-            message: 'Solicitação processada (modo fallback)',
-            warning: 'Sistema em modo de contingência'
+        return res.status(500).json({
+            success: false,
+            error: 'Erro ao processar solicitação',
+            details: process.env.NODE_ENV === 'development' ? error.message : 'Erro interno'
         });
     }
-});
+})
+  ;
 // ✅ 8. SOLICITAÇÃO AUTOMÁTICA AO COMPLETAR AULA (SISTEMA)
 app.post('/api/solicitacoes/automatica', async (req, res) => {
+    console.log('🤖 === SOLICITAÇÃO AUTOMÁTICA RECEBIDA ===');
+    console.log('📦 Body recebido:', req.body);
+    
     try {
         const { usuarioId, cursoId, aulaConcluidaId } = req.body;
         
-        console.log(`🤖 SOLICITAÇÃO AUTOMÁTICA: Usuário ${usuarioId} concluiu aula ${aulaConcluidaId} no curso ${cursoId}`);
-        
         if (!usuarioId || !cursoId || !aulaConcluidaId) {
+            console.log('❌ Dados incompletos recebidos');
             return res.status(400).json({
                 success: false,
                 error: 'Dados incompletos'
             });
         }
+        
+        console.log(`🤖 SOLICITAÇÃO AUTOMÁTICA: Usuário ${usuarioId} concluiu aula ${aulaConcluidaId} no curso ${cursoId}`);
         
         // 1. Encontrar a próxima aula
         const aulaConcluida = await prisma.aula.findUnique({
@@ -3698,6 +3754,7 @@ app.post('/api/solicitacoes/automatica', async (req, res) => {
         });
         
         if (!aulaConcluida) {
+            console.log('❌ Aula concluída não encontrada');
             return res.status(404).json({
                 success: false,
                 error: 'Aula concluída não encontrada'
@@ -3707,11 +3764,15 @@ app.post('/api/solicitacoes/automatica', async (req, res) => {
         const { modulo } = aulaConcluida;
         let proximaAula = null;
         
+        console.log(`🔍 Procurando próxima aula após: ${aulaConcluida.titulo}`);
+        console.log(`📊 Total de aulas no módulo: ${modulo.aulas.length}`);
+        
         // Procurar próxima aula no mesmo módulo
         for (let i = 0; i < modulo.aulas.length; i++) {
             if (modulo.aulas[i].id === parseInt(aulaConcluidaId)) {
                 if (i + 1 < modulo.aulas.length) {
                     proximaAula = modulo.aulas[i + 1];
+                    console.log(`✅ Próxima aula encontrada no mesmo módulo: ${proximaAula.titulo}`);
                     break;
                 }
             }
@@ -3719,6 +3780,7 @@ app.post('/api/solicitacoes/automatica', async (req, res) => {
         
         // Se não tem próxima aula no módulo, verificar próximo módulo
         if (!proximaAula) {
+            console.log('🔍 Procurando no próximo módulo...');
             const proximoModulo = await prisma.modulo.findFirst({
                 where: {
                     cursoId: parseInt(cursoId),
@@ -3736,6 +3798,7 @@ app.post('/api/solicitacoes/automatica', async (req, res) => {
             
             if (proximoModulo && proximoModulo.aulas.length > 0) {
                 proximaAula = proximoModulo.aulas[0];
+                console.log(`✅ Próxima aula encontrada no próximo módulo: ${proximaAula.titulo}`);
             }
         }
         
@@ -3748,13 +3811,18 @@ app.post('/api/solicitacoes/automatica', async (req, res) => {
             });
         }
         
+        console.log(`📤 Criando solicitação para próxima aula: ${proximaAula.titulo}`);
+        
         // Usar o endpoint unificado de solicitações
         const solicitacaoResponse = await fetch(`${req.protocol}://${req.get('host')}/api/solicitacoes`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 
+                'Content-Type': 'application/json',
+                'User-Agent': 'Sistema-Solicitacoes-Automaticas/1.0'
+            },
             body: JSON.stringify({
-                usuarioId: usuarioId,
-                cursoId: cursoId,
+                usuarioId: parseInt(usuarioId),
+                cursoId: parseInt(cursoId),
                 aulaId: proximaAula.id,
                 tipo: 'automatica',
                 automatica: true,
@@ -3763,6 +3831,8 @@ app.post('/api/solicitacoes/automatica', async (req, res) => {
         });
         
         const solicitacaoData = await solicitacaoResponse.json();
+        
+        console.log(`✅ Solicitação criada:`, solicitacaoData);
         
         res.json({
             success: true,
@@ -3777,13 +3847,14 @@ app.post('/api/solicitacoes/automatica', async (req, res) => {
         
     } catch (error) {
         console.error('❌ Erro na solicitação automática:', error);
+        console.error('Stack:', error.stack);
         res.status(500).json({
             success: false,
-            error: 'Erro na solicitação automática'
+            error: 'Erro na solicitação automática',
+            details: process.env.NODE_ENV === 'development' ? error.message : 'Erro interno'
         });
     }
 });
-
 // ✅ 9. LISTAR SOLICITAÇÕES PENDENTES (ADMIN)
 app.get('/api/solicitacoes/pendentes', async (req, res) => {
     try {
@@ -5152,6 +5223,7 @@ process.on('SIGTERM', async () => {
 });
 
 startServer();
+
 
 
 
