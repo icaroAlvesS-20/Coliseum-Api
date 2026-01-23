@@ -340,6 +340,8 @@ model SolicitacaoAutorizacao {
   criadoEm        DateTime @default(now())
   processadoEm    DateTime?
   atualizadoEm    DateTime @updatedAt
+  tipo            String?   @default("manual")  // "manual" ou "automatica"
+  automatica      Boolean?  @default(false)
   
   usuario  Usuario @relation("SolicitacoesUsuario", fields: [usuarioId], references: [id])
   curso    Curso   @relation(fields: [cursoId], references: [id])
@@ -417,5 +419,6 @@ model LogAutorizacao {
   
   @@map("log_autorizacao")
 }
+
 
 
