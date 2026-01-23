@@ -3822,25 +3822,33 @@ app.post('/api/solicitacoes/automatica', async (req, res) => {
     try {
         const { usuarioId, cursoId, aulaConcluidaId } = req.body;
         
+        // VALIDAÇÃO MELHORADA
         if (!usuarioId || !cursoId || !aulaConcluidaId) {
-            console.log('❌ Dados incompletos recebidos');
+            console.log('❌ Dados incompletos:', { usuarioId, cursoId, aulaConcluidaId });
             return res.status(400).json({
                 success: false,
-                error: 'Dados incompletos'
+                error: 'Dados incompletos',
+                details: 'Forneça usuarioId, cursoId e aulaConcluidaId'
             });
         }
         
         console.log(`🤖 SOLICITAÇÃO AUTOMÁTICA: Usuário ${usuarioId} concluiu aula ${aulaConcluidaId} no curso ${cursoId}`);
         
-        // 1. Buscar informações da aula concluída
+        // 1. Buscar aula concluída
         const aulaConcluida = await prisma.aula.findUnique({
-            where: { id: parseInt(aulaConcluidaId) },
+            where: { 
+                id: parseInt(aulaConcluidaId),
+                ativo: true 
+            },
             include: {
                 modulo: {
                     include: {
                         curso: true,
                         aulas: {
-                            where: { ativo: true },
+                            where: { 
+                                ativo: true,
+                                id: { not: parseInt(aulaConcluidaId) } // Excluir a aula atual
+                            },
                             orderBy: { ordem: 'asc' }
                         }
                     }
@@ -3849,23 +3857,23 @@ app.post('/api/solicitacoes/automatica', async (req, res) => {
         });
         
         if (!aulaConcluida) {
-            console.log('❌ Aula concluída não encontrada');
+            console.log('❌ Aula concluída não encontrada ou inativa');
             return res.status(404).json({
                 success: false,
                 error: 'Aula concluída não encontrada'
             });
         }
         
-        // 2. Encontrar a PRÓXIMA aula
+        console.log(`✅ Aula encontrada: "${aulaConcluida.titulo}" no módulo "${aulaConcluida.modulo?.titulo}"`);
+        
+        // 2. Encontrar PRÓXIMA aula (no mesmo módulo primeiro)
         let proximaAula = null;
         const modulo = aulaConcluida.modulo;
         
-        // Procurar no mesmo módulo primeiro
-        const indexAulaAtual = modulo.aulas.findIndex(a => a.id === parseInt(aulaConcluidaId));
-        
-        if (indexAulaAtual !== -1 && indexAulaAtual + 1 < modulo.aulas.length) {
-            proximaAula = modulo.aulas[indexAulaAtual + 1];
-            console.log(`✅ Próxima aula encontrada no mesmo módulo: ${proximaAula.titulo}`);
+        if (modulo && modulo.aulas && modulo.aulas.length > 0) {
+            // Aulas já estão ordenadas por ordem
+            proximaAula = modulo.aulas[0]; // Primeira aula após excluir a atual
+            console.log(`✅ Próxima aula no mesmo módulo: ${proximaAula.titulo}`);
         } 
         // Se não tem no mesmo módulo, procurar no próximo módulo
         else {
@@ -3873,13 +3881,14 @@ app.post('/api/solicitacoes/automatica', async (req, res) => {
             const proximoModulo = await prisma.modulo.findFirst({
                 where: {
                     cursoId: parseInt(cursoId),
-                    ordem: modulo.ordem + 1,
+                    ordem: modulo ? modulo.ordem + 1 : 1,
                     ativo: true
                 },
                 include: {
                     aulas: {
                         where: { ativo: true },
-                        orderBy: { ordem: 'asc' }
+                        orderBy: { ordem: 'asc' },
+                        take: 1
                     }
                 },
                 orderBy: { ordem: 'asc' }
@@ -3887,7 +3896,7 @@ app.post('/api/solicitacoes/automatica', async (req, res) => {
             
             if (proximoModulo && proximoModulo.aulas.length > 0) {
                 proximaAula = proximoModulo.aulas[0];
-                console.log(`✅ Próxima aula encontrada no próximo módulo: ${proximaAula.titulo}`);
+                console.log(`✅ Próxima aula no próximo módulo: ${proximaAula.titulo}`);
             }
         }
         
@@ -3912,11 +3921,14 @@ app.post('/api/solicitacoes/automatica', async (req, res) => {
         
         if (solicitacaoExistente) {
             console.log(`⚠️ Solicitação já existe e está pendente: ${solicitacaoExistente.id}`);
-            return res.status(409).json({
-                success: false,
-                error: 'Solicitação já existe',
-                details: 'Já existe uma solicitação pendente para esta aula',
-                solicitacaoId: solicitacaoExistente.id
+            return res.status(200).json({ // ⚠️ Mudado para 200 (não é erro)
+                success: true,
+                message: 'Solicitação já existe',
+                solicitacaoId: solicitacaoExistente.id,
+                proximaAula: {
+                    id: proximaAula.id,
+                    titulo: proximaAula.titulo
+                }
             });
         }
         
@@ -3930,7 +3942,9 @@ app.post('/api/solicitacoes/automatica', async (req, res) => {
                 moduloId: proximaAula.moduloId,
                 motivo: `✅ SISTEMA AUTOMÁTICO: Aluno completou a aula "${aulaConcluida.titulo}" e está pronto para continuar com "${proximaAula.titulo}"`,
                 status: 'pendente',
-                automatica: true
+                automatica: true,
+                criadoEm: new Date(),
+                atualizadoEm: new Date()
             },
             include: {
                 usuario: {
@@ -3948,19 +3962,16 @@ app.post('/api/solicitacoes/automatica', async (req, res) => {
         console.log(`✅ Solicitação AUTOMÁTICA criada: ${novaSolicitacao.id}`);
         console.log(`📧 Detalhes: Usuário ${usuarioId} → Próxima aula: ${proximaAula.titulo}`);
         
+        // 5. Criar notificação para o admin (opcional)
         try {
-            const usuario = await prisma.usuario.findUnique({
-                where: { id: parseInt(usuarioId) },
-                select: { nome: true }
-            });
-            
             await prisma.notificacaoAmizade.create({
                 data: {
                     tipo: 'solicitacao_aula',
                     usuarioId: 1, // ID do admin
                     remetenteId: parseInt(usuarioId),
                     lida: false,
-                    mensagem: `🎯 NOVA SOLICITAÇÃO AUTOMÁTICA: ${usuario?.nome || 'Aluno'} completou "${aulaConcluida.titulo}" e aguarda "${proximaAula.titulo}"`
+                    mensagem: `🎯 NOVA SOLICITAÇÃO AUTOMÁTICA: Aluno completou "${aulaConcluida.titulo}" e aguarda "${proximaAula.titulo}"`,
+                    criadoEm: new Date()
                 }
             });
             console.log('🔔 Notificação criada para o admin');
@@ -3972,7 +3983,11 @@ app.post('/api/solicitacoes/automatica', async (req, res) => {
             success: true,
             message: 'Solicitação automática registrada com sucesso!',
             solicitacaoId: novaSolicitacao.id,
-            solicitacao: novaSolicitacao,
+            solicitacao: {
+                id: novaSolicitacao.id,
+                tipo: novaSolicitacao.tipo,
+                status: novaSolicitacao.status
+            },
             proximaAula: {
                 id: proximaAula.id,
                 titulo: proximaAula.titulo
@@ -3983,10 +3998,20 @@ app.post('/api/solicitacoes/automatica', async (req, res) => {
         console.error('💥 ERRO INESPERADO:', error);
         console.error('Stack:', error.stack);
         
+        // Detalhar melhor o erro
+        const errorDetails = {
+            message: error.message,
+            code: error.code,
+            meta: error.meta
+        };
+        
+        console.error('📄 Detalhes do erro:', errorDetails);
+        
         return res.status(500).json({
             success: false,
             error: 'Erro ao processar solicitação automática',
-            details: process.env.NODE_ENV === 'development' ? error.message : 'Erro interno'
+            details: process.env.NODE_ENV === 'development' ? error.message : 'Erro interno',
+            debug: process.env.NODE_ENV === 'development' ? errorDetails : undefined
         });
     }
 });
@@ -5359,6 +5384,7 @@ process.on('SIGTERM', async () => {
 });
 
 startServer();
+
 
 
 
