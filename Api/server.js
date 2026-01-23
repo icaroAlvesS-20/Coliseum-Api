@@ -2956,13 +2956,6 @@ function formatarRespostaErro(res, status, mensagem, detalhes = null) {
     details: detalhes
   });
 }
-
-function validateId(id) {
-    if (!id) return null;
-    const num = parseInt(id);
-    return isNaN(num) ? null : num;
-}
-
 function validarId(id) {
     if (!id || id === 'undefined' || id === 'null') {
         return null;
@@ -5215,6 +5208,7 @@ process.on('SIGTERM', async () => {
 });
 
 startServer();
+
 
 
 
