@@ -34,16 +34,14 @@ if (!process.env.DATABASE_URL) {
     process.exit(1);
 }
 
-// ✅✅✅ CONFIGURAÇÃO CORS SIMPLIFICADA E CORRIGIDA ✅✅✅
 app.use(cors({
-  origin: true, // Permite todas as origens (para desenvolvimento)
-  credentials: true, // Permite envio de cookies e autenticação
+  origin: true, 
+  credentials: true, 
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'usuarioId', 'x-user-id'],
   exposedHeaders: ['Content-Length', 'X-Keep-Alive', 'X-Request-Id']
 }));
 
-// Configuração OPTIONS para todas as rotas
 app.options('*', cors());
 
 app.use(express.json({ limit: '10mb' }));
@@ -3698,7 +3696,30 @@ app.post('/api/solicitacoes/automatica', async (req, res) => {
                 success: false,
                 error: 'Dados incompletos'
             });
-        }
+        }        res.json({
+            success: true,
+            message: 'Solicitação automática recebida!',
+            data: {
+                usuarioId,
+                cursoId,
+                aulaConcluidaId,
+                timestamp: new Date().toISOString(),
+                proximaAula: {
+                    id: parseInt(aulaConcluidaId) + 1,
+                    titulo: `Próxima aula após ${aulaConcluidaId}`,
+                    moduloTitulo: "Módulo seguinte"
+                }
+            }
+        });
+        
+    } catch (error) {
+        console.error('❌ ERRO NA SOLICITAÇÃO AUTOMÁTICA:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Erro interno no servidor'
+        });
+    }
+})
       
 app.put('/api/solicitacoes-autorizacao/:id/aprovar', async (req, res) => {
     try {
@@ -5224,3 +5245,4 @@ process.on('SIGTERM', async () => {
 });
 
 startServer();
+
