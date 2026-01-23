@@ -2957,7 +2957,82 @@ function formatarRespostaErro(res, status, mensagem, detalhes = null) {
   });
 }
 
-// ========== SISTEMA DE AUTORIZAÇÃO  ========== //
+function validateId(id) {
+    if (!id) return null;
+    const num = parseInt(id);
+    return isNaN(num) ? null : num;
+}
+
+function validarId(id) {
+    if (!id || id === 'undefined' || id === 'null') {
+        return null;
+    }
+    
+    const idNumber = parseInt(id);
+    if (isNaN(idNumber) || idNumber <= 0) {
+        return null;
+    }
+    
+    return idNumber;
+}
+
+function handlePrismaError(res, error) {
+    console.error('❌ Erro no Prisma:', error);
+    
+    // Erros comuns do Prisma
+    if (error.code === 'P2025') {
+        return formatarRespostaErro(res, 404, 'Registro não encontrado');
+    }
+    
+    if (error.code === 'P2002') {
+        return formatarRespostaErro(res, 409, 'Registro já existe', {
+            campo: error.meta?.target?.[0]
+        });
+    }
+    
+    if (error.code === 'P2003') {
+        return formatarRespostaErro(res, 400, 'Referência inválida');
+    }
+    
+    // Erro genérico
+    return formatarRespostaErro(res, 500, 'Erro interno do servidor', 
+        process.env.NODE_ENV === 'development' ? error.message : undefined
+    );
+}
+
+function formatarRespostaSucesso(res, data, mensagem = 'Operação realizada com sucesso', status = 200) {
+    return res.status(status).json({
+        success: true,
+        message: mensagem,
+        ...data
+    });
+}
+
+function validarDataExpiracao(dataString) {
+    if (!dataString) return null;
+    
+    const data = new Date(dataString);
+    if (isNaN(data.getTime())) {
+        throw new Error('Data de expiração inválida');
+    }
+    
+    // Verificar se a data não é no passado
+    if (data < new Date()) {
+        throw new Error('Data de expiração não pode ser no passado');
+    }
+    
+    return data;
+}
+
+function logRequisicao(tipo, endpoint, dados = {}) {
+    const timestamp = new Date().toISOString();
+    console.log(`[${timestamp}] ${tipo} ${endpoint}`);
+    
+    if (Object.keys(dados).length > 0) {
+        console.log('📦 Dados:', JSON.stringify(dados, null, 2));
+    }
+}
+// ========== SISTEMA DE AUTORIZAÇÃO ========== //
 
 // ✅ 1. VERIFICAR AUTORIZAÇÃO DE UMA AULA (FRONTEND)
 app.get('/api/autorizacoes/verificar/:usuarioId/:cursoId/:aulaId', async (req, res) => {
@@ -3068,7 +3143,7 @@ app.get('/api/autorizacoes/verificar/:usuarioId/:cursoId/:aulaId', async (req, r
     }
 });
 
-// ✅ 2. LISTAR AUTORIZAÇÕES DE UM USUÁRIO PARA UM CURSO
+// ✅ 2. LISTAR AUTORIZAÇÕES DE UM USUÁRIO PARA UM CURSO (FRONTEND)
 app.get('/api/autorizacoes/curso/:cursoId/usuario/:usuarioId', async (req, res) => {
     try {
         const cursoId = validateId(req.params.cursoId);
@@ -3141,11 +3216,11 @@ app.post('/api/autorizacoes', async (req, res) => {
             });
         }
         
-        if (!['liberar_aula', 'liberar_modulo', 'liberar_todas', 'bloquear_progresso'].includes(tipo)) {
+        if (!['liberar_aula', 'liberar_modulo', 'liberar_todas'].includes(tipo)) {
             return res.status(400).json({
                 success: false,
                 error: 'Tipo inválido',
-                details: 'Tipos válidos: liberar_aula, liberar_modulo, liberar_todas, bloquear_progresso'
+                details: 'Tipos válidos: liberar_aula, liberar_modulo, liberar_todas'
             });
         }
         
@@ -3415,12 +3490,102 @@ app.put('/api/autorizacoes/:id/desativar', async (req, res) => {
     }
 });
 
-// ✅ 6. CRIAR SOLICITAÇÃO DE AUTORIZAÇÃO (ALUNO)
-app.post('/api/solicitacoes-autorizacao', async (req, res) => {
+// ✅ 6. LISTAR TODAS AS AUTORIZAÇÕES COM FILTROS (ADMIN)
+app.get('/api/autorizacoes', async (req, res) => {
     try {
-        const { usuarioId, cursoId, aulaId, moduloId, motivo } = req.body;
+        const { 
+            page = 1, 
+            limit = 20, 
+            usuarioId, 
+            cursoId, 
+            ativo,
+            tipo,
+            dataInicio,
+            dataFim
+        } = req.query;
         
-        console.log(`📝 Nova solicitação - Usuário:${usuarioId}, Aula:${aulaId}`);
+        const skip = (parseInt(page) - 1) * parseInt(limit);
+        
+        const whereClause = {};
+        
+        if (usuarioId) whereClause.usuarioId = parseInt(usuarioId);
+        if (cursoId) whereClause.cursoId = parseInt(cursoId);
+        if (ativo !== undefined) whereClause.ativo = ativo === 'true';
+        if (tipo) whereClause.tipo = tipo;
+        
+        // Filtro por data
+        if (dataInicio || dataFim) {
+            whereClause.criadoEm = {};
+            if (dataInicio) whereClause.criadoEm.gte = new Date(dataInicio);
+            if (dataFim) whereClause.criadoEm.lte = new Date(dataFim);
+        }
+        
+        console.log(`📋 Buscando autorizações - Filtros:`, whereClause);
+        
+        const [autorizacoes, total] = await Promise.all([
+            prisma.autorizacaoAula.findMany({
+                where: whereClause,
+                include: {
+                    usuario: {
+                        select: { id: true, nome: true, ra: true }
+                    },
+                    curso: {
+                        select: { id: true, titulo: true }
+                    },
+                    aula: {
+                        select: { id: true, titulo: true }
+                    },
+                    modulo: {
+                        select: { id: true, titulo: true }
+                    },
+                    admin: {
+                        select: { nome: true }
+                    }
+                },
+                orderBy: { criadoEm: 'desc' },
+                skip: skip,
+                take: parseInt(limit)
+            }),
+            prisma.autorizacaoAula.count({ where: whereClause })
+        ]);
+        
+        console.log(`✅ ${autorizacoes.length} autorizações encontradas (Total: ${total})`);
+        
+        res.json({
+            success: true,
+            autorizacoes: autorizacoes,
+            pagination: {
+                page: parseInt(page),
+                limit: parseInt(limit),
+                total: total,
+                totalPages: Math.ceil(total / parseInt(limit))
+            }
+        });
+        
+    } catch (error) {
+        console.error('❌ Erro ao listar autorizações:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Erro ao listar autorizações'
+        });
+    }
+});
+
+// ========== SOLICITAÇÕES DE AUTORIZAÇÃO ========== //
+
+// ✅ 7. CRIAR SOLICITAÇÃO DE AUTORIZAÇÃO (ALUNO)
+app.post('/api/solicitacoes', async (req, res) => {
+    try {
+        const { 
+            usuarioId, 
+            cursoId, 
+            aulaId, 
+            tipo = 'manual',
+            motivo, 
+            automatica = false
+        } = req.body;
+        
+        console.log(`📝 Nova solicitação - Tipo: ${tipo}, Usuário:${usuarioId}, Aula:${aulaId}`);
         
         if (!usuarioId || !cursoId || !aulaId) {
             return res.status(400).json({
@@ -3460,7 +3625,8 @@ app.post('/api/solicitacoes-autorizacao', async (req, res) => {
         
         // Verificar se aula existe
         const aula = await prisma.aula.findUnique({
-            where: { id: aulaIdInt }
+            where: { id: aulaIdInt },
+            include: { modulo: true }
         });
         
         if (!aula) {
@@ -3481,11 +3647,11 @@ app.post('/api/solicitacoes-autorizacao', async (req, res) => {
         });
         
         if (solicitacaoExistente) {
-            return res.status(409).json({
-                success: false,
-                error: 'Solicitação já existe',
-                details: 'Já existe uma solicitação pendente para esta aula',
-                solicitacao: solicitacaoExistente
+            return res.status(200).json({
+                success: true,
+                message: 'Solicitação já existe e está pendente',
+                solicitacao: solicitacaoExistente,
+                jaExistia: true
             });
         }
         
@@ -3504,32 +3670,38 @@ app.post('/api/solicitacoes-autorizacao', async (req, res) => {
         });
         
         if (autorizacaoExistente) {
-            return res.status(409).json({
-                success: false,
-                error: 'Autorização já existe',
-                details: 'Você já tem autorização para esta aula',
+            return res.status(200).json({
+                success: true,
+                message: 'Você já tem autorização para esta aula',
                 autorizacao: autorizacaoExistente
             });
         }
         
+        // Criar motivo se não fornecido
+        const motivoFinal = motivo || 
+            (automatica 
+                ? `🤖 Solicitação automática: Aluno ${usuario.nome} completou aula anterior.`
+                : `✍️ Solicitação manual: Aluno ${usuario.nome} solicitou acesso à aula.`);
+        
         // Criar solicitação
         const novaSolicitacao = await prisma.solicitacaoAutorizacao.create({
             data: {
+                tipo: tipo === 'automatica' ? 'automatica' : 'manual',
                 usuarioId: usuarioIdInt,
                 cursoId: cursoIdInt,
                 aulaId: aulaIdInt,
-                moduloId: moduloId ? parseInt(moduloId) : aula.moduloId,
-                motivo: motivo || `O aluno ${usuario.nome} solicitou autorização para continuar o curso.`,
+                moduloId: aula.moduloId,
+                motivo: motivoFinal,
                 status: 'pendente',
                 criadoEm: new Date(),
                 atualizadoEm: new Date()
             },
             include: {
                 usuario: {
-                    select: { id: true, nome: true, ra: true, curso: true }
+                    select: { id: true, nome: true, ra: true }
                 },
                 curso: {
-                    select: { id: true, titulo: true, materia: true }
+                    select: { id: true, titulo: true }
                 },
                 aula: {
                     select: { id: true, titulo: true }
@@ -3537,32 +3709,161 @@ app.post('/api/solicitacoes-autorizacao', async (req, res) => {
             }
         });
         
-        console.log(`✅ Solicitação criada: ${novaSolicitacao.id}`);
+        console.log(`✅ Solicitação criada: ${novaSolicitacao.id} (${tipo})`);
         
         res.status(201).json({
             success: true,
-            message: 'Solicitação enviada ao administrador! Aguarde aprovação.',
-            solicitacao: novaSolicitacao
+            message: automatica 
+                ? 'Solicitação automática registrada! O administrador será notificado.' 
+                : 'Solicitação enviada ao administrador! Aguarde aprovação.',
+            solicitacao: novaSolicitacao,
+            jaExistia: false
         });
         
     } catch (error) {
         console.error('❌ Erro ao criar solicitação:', error);
         res.status(500).json({
             success: false,
-            error: 'Erro ao criar solicitação'
+            error: 'Erro ao criar solicitação',
+            details: process.env.NODE_ENV === 'development' ? error.message : 'Erro interno'
         });
     }
 });
 
-// ✅ GET LISTAR SOLICITAÇÕES PENDENTES (ADMIN)
-app.get('/api/solicitacoes-autorizacao/pendentes', async (req, res) => {
+// ✅ 8. SOLICITAÇÃO AUTOMÁTICA AO COMPLETAR AULA (SISTEMA)
+app.post('/api/solicitacoes/automatica', async (req, res) => {
+    try {
+        const { usuarioId, cursoId, aulaConcluidaId } = req.body;
+        
+        console.log(`🤖 SOLICITAÇÃO AUTOMÁTICA: Usuário ${usuarioId} concluiu aula ${aulaConcluidaId} no curso ${cursoId}`);
+        
+        if (!usuarioId || !cursoId || !aulaConcluidaId) {
+            return res.status(400).json({
+                success: false,
+                error: 'Dados incompletos'
+            });
+        }
+        
+        // 1. Encontrar a próxima aula
+        const aulaConcluida = await prisma.aula.findUnique({
+            where: { id: parseInt(aulaConcluidaId) },
+            include: {
+                modulo: {
+                    include: {
+                        curso: true,
+                        aulas: {
+                            where: { ativo: true },
+                            orderBy: { ordem: 'asc' }
+                        }
+                    }
+                }
+            }
+        });
+        
+        if (!aulaConcluida) {
+            return res.status(404).json({
+                success: false,
+                error: 'Aula concluída não encontrada'
+            });
+        }
+        
+        const { modulo } = aulaConcluida;
+        let proximaAula = null;
+        
+        // Procurar próxima aula no mesmo módulo
+        for (let i = 0; i < modulo.aulas.length; i++) {
+            if (modulo.aulas[i].id === parseInt(aulaConcluidaId)) {
+                if (i + 1 < modulo.aulas.length) {
+                    proximaAula = modulo.aulas[i + 1];
+                    break;
+                }
+            }
+        }
+        
+        // Se não tem próxima aula no módulo, verificar próximo módulo
+        if (!proximaAula) {
+            const proximoModulo = await prisma.modulo.findFirst({
+                where: {
+                    cursoId: parseInt(cursoId),
+                    ordem: modulo.ordem + 1,
+                    ativo: true
+                },
+                include: {
+                    aulas: {
+                        where: { ativo: true },
+                        orderBy: { ordem: 'asc' }
+                    }
+                },
+                orderBy: { ordem: 'asc' }
+            });
+            
+            if (proximoModulo && proximoModulo.aulas.length > 0) {
+                proximaAula = proximoModulo.aulas[0];
+            }
+        }
+        
+        if (!proximaAula) {
+            console.log('📭 Não há próxima aula disponível');
+            return res.json({
+                success: true,
+                message: 'Não há próxima aula para solicitar',
+                proximaAula: null
+            });
+        }
+        
+        // Usar o endpoint unificado de solicitações
+        const solicitacaoResponse = await fetch(`${req.protocol}://${req.get('host')}/api/solicitacoes`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                usuarioId: usuarioId,
+                cursoId: cursoId,
+                aulaId: proximaAula.id,
+                tipo: 'automatica',
+                automatica: true,
+                motivo: `Aluno completou a aula "${aulaConcluida.titulo}". Pronto para continuar: "${proximaAula.titulo}".`
+            })
+        });
+        
+        const solicitacaoData = await solicitacaoResponse.json();
+        
+        res.json({
+            success: true,
+            message: 'Solicitação automática processada!',
+            solicitacao: solicitacaoData.solicitacao,
+            proximaAula: {
+                id: proximaAula.id,
+                titulo: proximaAula.titulo,
+                moduloTitulo: modulo.titulo
+            }
+        });
+        
+    } catch (error) {
+        console.error('❌ Erro na solicitação automática:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Erro na solicitação automática'
+        });
+    }
+});
+
+// ✅ 9. LISTAR SOLICITAÇÕES PENDENTES (ADMIN)
+app.get('/api/solicitacoes/pendentes', async (req, res) => {
     try {
         console.log('📋 Buscando solicitações pendentes...');
         
+        const { tipo, cursoId, usuarioId } = req.query;
+        
+        const whereClause = { 
+            status: 'pendente' 
+        };
+        
+        if (tipo) whereClause.tipo = tipo;
+        if (cursoId) whereClause.cursoId = parseInt(cursoId);
+        if (usuarioId) whereClause.usuarioId = parseInt(usuarioId);
+        
         const solicitacoes = await prisma.solicitacaoAutorizacao.findMany({
-            where: { 
-                status: 'pendente' 
-            },
+            where: whereClause,
             include: {
                 usuario: {
                     select: { 
@@ -3609,119 +3910,24 @@ app.get('/api/solicitacoes-autorizacao/pendentes', async (req, res) => {
         res.json({
             success: true,
             solicitacoes: solicitacoes,
-            total: solicitacoes.length
+            total: solicitacoes.length,
+            tipos: {
+                manual: solicitacoes.filter(s => s.tipo === 'manual').length,
+                automatica: solicitacoes.filter(s => s.tipo === 'automatica').length
+            }
         });
         
     } catch (error) {
         console.error('❌ Erro ao buscar solicitações:', error);
         res.status(500).json({
             success: false,
-            error: 'Erro ao buscar solicitações pendentes',
-            details: process.env.NODE_ENV === 'development' ? error.message : 'Erro interno'
+            error: 'Erro ao buscar solicitações pendentes'
         });
     }
 });
 
-// ✅ LISTAR SOLICITAÇÕES AUTOMÁTICAS (ADMIN)
-app.get('/api/solicitacoes/automaticas/pendentes', async (req, res) => {
-    try {
-        console.log('🤖 Buscando solicitações automáticas pendentes...');
-        
-        const solicitacoes = await prisma.solicitacaoAutorizacao.findMany({
-            where: { 
-                tipo: 'automatica',
-                status: 'pendente'
-            },
-            include: {
-                usuario: {
-                    select: { 
-                        id: true, 
-                        nome: true, 
-                        ra: true, 
-                        serie: true, 
-                        curso: true 
-                    }
-                },
-                curso: {
-                    select: { 
-                        id: true, 
-                        titulo: true 
-                    }
-                },
-                aula: {
-                    select: { 
-                        id: true, 
-                        titulo: true,
-                        ordem: true
-                    }
-                },
-                modulo: {
-                    select: { 
-                        id: true, 
-                        titulo: true,
-                        ordem: true
-                    }
-                }
-            },
-            orderBy: { 
-                criadoEm: 'asc' 
-            }
-        });
-        
-        console.log(`✅ ${solicitacoes.length} solicitações automáticas encontradas`);
-        
-        res.json({
-            success: true,
-            solicitacoes: solicitacoes,
-            total: solicitacoes.length
-        });
-        
-    } catch (error) {
-        console.error('❌ Erro ao buscar solicitações automáticas:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Erro ao buscar solicitações'
-        });
-    }
-});
-
-app.post('/api/solicitacoes/automatica', async (req, res) => {
-    try {
-        const { usuarioId, cursoId, aulaConcluidaId } = req.body;
-        
-        console.log(`🤖 SOLICITAÇÃO AUTOMÁTICA POST: Usuário ${usuarioId} concluiu aula ${aulaConcluidaId}`);
-        
-        if (!usuarioId || !cursoId || !aulaConcluidaId) {
-            return res.status(400).json({
-                success: false,
-                error: 'Dados incompletos'
-            });
-        }        res.json({
-            success: true,
-            message: 'Solicitação automática recebida!',
-            data: {
-                usuarioId,
-                cursoId,
-                aulaConcluidaId,
-                timestamp: new Date().toISOString(),
-                proximaAula: {
-                    id: parseInt(aulaConcluidaId) + 1,
-                    titulo: `Próxima aula após ${aulaConcluidaId}`,
-                    moduloTitulo: "Módulo seguinte"
-                }
-            }
-        });
-        
-    } catch (error) {
-        console.error('❌ ERRO NA SOLICITAÇÃO AUTOMÁTICA:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Erro interno no servidor'
-        });
-    }
-})
-      
-app.put('/api/solicitacoes-autorizacao/:id/aprovar', async (req, res) => {
+// ✅ 10. APROVAR SOLICITAÇÃO (ADMIN)
+app.put('/api/solicitacoes/:id/aprovar', async (req, res) => {
     try {
         const solicitacaoId = validateId(req.params.id);
         const { adminId, motivo, dataExpiracao } = req.body;
@@ -3806,8 +4012,8 @@ app.put('/api/solicitacoes-autorizacao/:id/aprovar', async (req, res) => {
     }
 });
 
-// ✅ 9. REJEITAR SOLICITAÇÃO (ADMIN)
-app.put('/api/solicitacoes-autorizacao/:id/rejeitar', async (req, res) => {
+// ✅ 11. REJEITAR SOLICITAÇÃO (ADMIN)
+app.put('/api/solicitacoes/:id/rejeitar', async (req, res) => {
     try {
         const solicitacaoId = validateId(req.params.id);
         const { adminId, motivoRejeicao } = req.body;
@@ -3877,10 +4083,11 @@ app.put('/api/solicitacoes-autorizacao/:id/rejeitar', async (req, res) => {
     }
 });
 
-// ✅ 10. HISTÓRICO DE SOLICITAÇÕES POR USUÁRIO
-app.get('/api/solicitacoes-autorizacao/usuario/:usuarioId', async (req, res) => {
+// ✅ 12. HISTÓRICO DE SOLICITAÇÕES POR USUÁRIO
+app.get('/api/solicitacoes/usuario/:usuarioId', async (req, res) => {
     try {
         const usuarioId = validateId(req.params.usuarioId);
+        const { status, cursoId, limit = 20 } = req.query;
         
         if (!usuarioId) {
             return res.status(400).json({
@@ -3891,8 +4098,12 @@ app.get('/api/solicitacoes-autorizacao/usuario/:usuarioId', async (req, res) => 
         
         console.log(`📊 Buscando histórico de solicitações - Usuário: ${usuarioId}`);
         
+        const whereClause = { usuarioId };
+        if (status) whereClause.status = status;
+        if (cursoId) whereClause.cursoId = parseInt(cursoId);
+        
         const solicitacoes = await prisma.solicitacaoAutorizacao.findMany({
-            where: { usuarioId },
+            where: whereClause,
             include: {
                 curso: { 
                     select: { 
@@ -3919,12 +4130,18 @@ app.get('/api/solicitacoes-autorizacao/usuario/:usuarioId', async (req, res) => 
             orderBy: { 
                 criadoEm: 'desc' 
             },
-            take: 20
+            take: parseInt(limit)
         });
         
         res.json({
             success: true,
-            solicitacoes: solicitacoes
+            solicitacoes: solicitacoes,
+            total: solicitacoes.length,
+            resumo: {
+                pendentes: solicitacoes.filter(s => s.status === 'pendente').length,
+                aprovadas: solicitacoes.filter(s => s.status === 'aprovado').length,
+                rejeitadas: solicitacoes.filter(s => s.status === 'rejeitado').length
+            }
         });
         
     } catch (error) {
@@ -3936,8 +4153,8 @@ app.get('/api/solicitacoes-autorizacao/usuario/:usuarioId', async (req, res) => 
     }
 });
 
-// ✅ 11. EXCLUIR SOLICITAÇÃO
-app.delete('/api/solicitacoes-autorizacao/:id', async (req, res) => {
+// ✅ 13. EXCLUIR SOLICITAÇÃO
+app.delete('/api/solicitacoes/:id', async (req, res) => {
     try {
         const solicitacaoId = validateId(req.params.id);
         
@@ -3981,262 +4198,9 @@ app.delete('/api/solicitacoes-autorizacao/:id', async (req, res) => {
     }
 });
 
-// ✅ SOLICITAÇÃO AUTOMÁTICA AO COMPLETAR AULA
-app.post('/api/solicitacoes/automatica', async (req, res) => {
-    try {
-        const { usuarioId, cursoId, aulaConcluidaId } = req.body;
-        
-        console.log(`🤖 SOLICITAÇÃO AUTOMÁTICA: Usuário ${usuarioId} concluiu aula ${aulaConcluidaId} no curso ${cursoId}`);
-        
-        if (!usuarioId || !cursoId || !aulaConcluidaId) {
-            return res.status(400).json({
-                success: false,
-                error: 'Dados incompletos'
-            });
-        }
-        
-        // 1. Encontrar a próxima aula
-        const aulaConcluida = await prisma.aula.findUnique({
-            where: { id: parseInt(aulaConcluidaId) },
-            include: {
-                modulo: {
-                    include: {
-                        curso: true,
-                        aulas: {
-                            where: { ativo: true },
-                            orderBy: { ordem: 'asc' }
-                        }
-                    }
-                }
-            }
-        });
-        
-        if (!aulaConcluida) {
-            return res.status(404).json({
-                success: false,
-                error: 'Aula concluída não encontrada'
-            });
-        }
-        
-        const { modulo } = aulaConcluida;
-        let proximaAula = null;
-        
-        // Procurar próxima aula no mesmo módulo
-        for (let i = 0; i < modulo.aulas.length; i++) {
-            if (modulo.aulas[i].id === parseInt(aulaConcluidaId)) {
-                if (i + 1 < modulo.aulas.length) {
-                    proximaAula = modulo.aulas[i + 1];
-                    break;
-                }
-            }
-        }
-        
-        // Se não tem próxima aula no módulo, verificar próximo módulo
-        if (!proximaAula) {
-            const proximoModulo = await prisma.modulo.findFirst({
-                where: {
-                    cursoId: parseInt(cursoId),
-                    ordem: modulo.ordem + 1,
-                    ativo: true
-                },
-                include: {
-                    aulas: {
-                        where: { ativo: true },
-                        orderBy: { ordem: 'asc' }
-                    }
-                },
-                orderBy: { ordem: 'asc' }
-            });
-            
-            if (proximoModulo && proximoModulo.aulas.length > 0) {
-                proximaAula = proximoModulo.aulas[0];
-            }
-        }
-        
-        if (!proximaAula) {
-            console.log('📭 Não há próxima aula disponível');
-            return res.json({
-                success: true,
-                message: 'Não há próxima aula para solicitar',
-                proximaAula: null
-            });
-        }
-        
-        // 2. Verificar se já existe solicitação pendente
-        const solicitacaoExistente = await prisma.solicitacaoAutorizacao.findFirst({
-            where: {
-                usuarioId: parseInt(usuarioId),
-                cursoId: parseInt(cursoId),
-                aulaId: proximaAula.id,
-                status: 'pendente'
-            }
-        });
-        
-        if (solicitacaoExistente) {
-            console.log('ℹ️ Solicitação já existe:', solicitacaoExistente.id);
-            return res.json({
-                success: true,
-                message: 'Solicitação já existe',
-                solicitacao: solicitacaoExistente,
-                proximaAula: proximaAula
-            });
-        }
-        
-        // 3. Verificar se já existe autorização ativa
-        const autorizacaoExistente = await prisma.autorizacaoAula.findFirst({
-            where: {
-                usuarioId: parseInt(usuarioId),
-                cursoId: parseInt(cursoId),
-                aulaId: proximaAula.id,
-                ativo: true,
-                OR: [
-                    { dataExpiracao: null },
-                    { dataExpiracao: { gt: new Date() } }
-                ]
-            }
-        });
-        
-        if (autorizacaoExistente) {
-            console.log('✅ Já tem autorização:', autorizacaoExistente.id);
-            return res.json({
-                success: true,
-                message: 'Usuário já tem autorização para esta aula',
-                autorizacao: autorizacaoExistente,
-                proximaAula: proximaAula
-            });
-        }
-        
-        // 4. Verificar se a próxima aula é a primeira do módulo
-        const isPrimeiraAulaProximo = proximaAula.ordem === 1;
-        
-        // 5. Criar solicitação automática
-        const motivo = isPrimeiraAulaProximo 
-            ? `🎓 Aluno completou a última aula do módulo anterior. Pronto para iniciar novo módulo: "${proximaAula.titulo}".`
-            : `📚 Aluno completou a aula anterior "${aulaConcluida.titulo}". Pronto para continuar: "${proximaAula.titulo}".`;
-        
-        const novaSolicitacao = await prisma.solicitacaoAutorizacao.create({
-            data: {
-                tipo: 'automatica',
-                usuarioId: parseInt(usuarioId),
-                cursoId: parseInt(cursoId),
-                aulaId: proximaAula.id,
-                moduloId: proximaAula.moduloId,
-                motivo: motivo,
-                status: 'pendente',
-                criadoEm: new Date(),
-                atualizadoEm: new Date()
-            },
-            include: {
-                usuario: {
-                    select: { nome: true, ra: true, curso: true }
-                },
-                curso: {
-                    select: { titulo: true }
-                },
-                aula: {
-                    select: { titulo: true, ordem: true }
-                },
-                modulo: {
-                    select: { titulo: true, ordem: true }
-                }
-            }
-        });
-        
-        console.log(`✅ Solicitação automática criada: ${novaSolicitacao.id}`);
-        console.log(`📤 Próxima aula: "${proximaAula.titulo}"`);
-        
-        res.status(201).json({
-            success: true,
-            message: 'Solicitação automática criada com sucesso!',
-            solicitacao: novaSolicitacao,
-            proximaAula: {
-                id: proximaAula.id,
-                titulo: proximaAula.titulo,
-                moduloTitulo: modulo.titulo,
-                isPrimeiraAulaProximo: isPrimeiraAulaProximo
-            }
-        });
-        
-    } catch (error) {
-        console.error('❌ Erro na solicitação automática:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Erro na solicitação automática'
-        });
-    }
-});
+// ========== ENDPOINTS AUXILIARES ========== //
 
-// ✅ 12. LISTAR TODAS AS AUTORIZAÇÕES (ADMIN)
-app.get('/api/autorizacoes', async (req, res) => {
-    try {
-        const { 
-            page = 1, 
-            limit = 20, 
-            usuarioId, 
-            cursoId, 
-            ativo 
-        } = req.query;
-        
-        const skip = (parseInt(page) - 1) * parseInt(limit);
-        
-        const whereClause = {};
-        
-        if (usuarioId) whereClause.usuarioId = parseInt(usuarioId);
-        if (cursoId) whereClause.cursoId = parseInt(cursoId);
-        if (ativo !== undefined) whereClause.ativo = ativo === 'true';
-        
-        console.log(`📋 Buscando autorizações - Filtros:`, whereClause);
-        
-        const [autorizacoes, total] = await Promise.all([
-            prisma.autorizacaoAula.findMany({
-                where: whereClause,
-                include: {
-                    usuario: {
-                        select: { id: true, nome: true, ra: true }
-                    },
-                    curso: {
-                        select: { id: true, titulo: true }
-                    },
-                    aula: {
-                        select: { id: true, titulo: true }
-                    },
-                    modulo: {
-                        select: { id: true, titulo: true }
-                    },
-                    admin: {
-                        select: { nome: true }
-                    }
-                },
-                orderBy: { criadoEm: 'desc' },
-                skip: skip,
-                take: parseInt(limit)
-            }),
-            prisma.autorizacaoAula.count({ where: whereClause })
-        ]);
-        
-        console.log(`✅ ${autorizacoes.length} autorizações encontradas (Total: ${total})`);
-        
-        res.json({
-            success: true,
-            autorizacoes: autorizacoes,
-            pagination: {
-                page: parseInt(page),
-                limit: parseInt(limit),
-                total: total,
-                totalPages: Math.ceil(total / parseInt(limit))
-            }
-        });
-        
-    } catch (error) {
-        console.error('❌ Erro ao listar autorizações:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Erro ao listar autorizações'
-        });
-    }
-});
-
-// ✅ 13. BUSCAR AULAS PARA DROPDOWN
+// ✅ 14. BUSCAR AULAS PARA DROPDOWN (INTERFACE)
 app.get('/api/cursos/:cursoId/aulas', async (req, res) => {
     try {
         const cursoId = validateId(req.params.cursoId);
@@ -4272,7 +4236,9 @@ app.get('/api/cursos/:cursoId/aulas', async (req, res) => {
         
         res.json({
             success: true,
-            aulas: aulas
+            aulas: aulas,
+            total: aulas.length,
+            modulos: [...new Set(aulas.map(a => a.modulo.id))].length
         });
         
     } catch (error) {
@@ -4281,16 +4247,16 @@ app.get('/api/cursos/:cursoId/aulas', async (req, res) => {
     }
 });
 
-// ✅ 14. STATUS DO SISTEMA DE AUTORIZAÇÃO
+// ✅ 15. STATUS DO SISTEMA DE AUTORIZAÇÃO
 app.get('/api/sistema/autorizacao/status', async (req, res) => {
     try {
-        // Configuração fixa por enquanto
-        // No futuro pode ser armazenada no banco
+        // Configuração do sistema
         const config = {
             sistemaAtivo: true,
-            bloqueioTotal: true,
             modo: "bloqueio_progressivo",
-            mensagem: "Sistema de autorização ativo - Todas as aulas requerem autorização"
+            mensagem: "Sistema de autorização ativo - Todas as aulas requerem autorização",
+            versao: "1.0.0",
+            dataAtualizacao: new Date().toISOString()
         };
         
         res.json({
@@ -4302,7 +4268,7 @@ app.get('/api/sistema/autorizacao/status', async (req, res) => {
     }
 });
 
-// ✅ 15. ESTATÍSTICAS DO SISTEMA DE AUTORIZAÇÃO
+// ✅ 16. ESTATÍSTICAS DO SISTEMA DE AUTORIZAÇÃO
 app.get('/api/sistema/autorizacao/estatisticas', async (req, res) => {
     try {
         const [
@@ -4343,9 +4309,13 @@ app.get('/api/sistema/autorizacao/estatisticas', async (req, res) => {
                 usuariosComAutorizacoes,
                 taxaAprovacao: totalSolicitacoes > 0 
                     ? Math.round(((totalSolicitacoes - solicitacoesPendentes) / totalSolicitacoes) * 100) 
+                    : 0,
+                taxaUsoSistema: usuariosComAutorizacoes > 0 
+                    ? Math.round((usuariosComAutorizacoes / await prisma.usuario.count()) * 100)
                     : 0
             },
-            ultimasSolicitacoes
+            ultimasSolicitacoes,
+            timestamp: new Date().toISOString()
         });
         
     } catch (error) {
@@ -4353,207 +4323,6 @@ app.get('/api/sistema/autorizacao/estatisticas', async (req, res) => {
         res.status(500).json({
             success: false,
             error: 'Erro ao buscar estatísticas'
-        });
-    }
-});
-
-app.get('/api/autorizacoes/:usuarioId/:cursoId', async (req, res) => {
-    try {
-        const usuarioId = validateId(req.params.usuarioId);
-        const cursoId = validateId(req.params.cursoId);
-        
-        if (!usuarioId || !cursoId) {
-            return res.status(400).json({
-                success: false,
-                error: 'IDs inválidos'
-            });
-        }
-        
-        console.log(`🔍 Endpoint alternativo - Buscando autorizações para Usuário:${usuarioId}, Curso:${cursoId}`);
-        
-        const autorizacoes = await prisma.autorizacaoAula.findMany({
-            where: {
-                usuarioId: usuarioId,
-                cursoId: cursoId,
-                ativo: true,
-                OR: [
-                    { dataExpiracao: null },
-                    { dataExpiracao: { gt: new Date() } }
-                ]
-            },
-            select: {
-                id: true,
-                tipo: true,
-                aulaId: true,
-                moduloId: true,
-                motivo: true,
-                dataExpiracao: true,
-                criadoEm: true
-            },
-            orderBy: { criadoEm: 'desc' }
-        });
-        
-        console.log(`✅ ${autorizacoes.length} autorizações encontradas`);
-        
-        res.json({
-            success: true,
-            autorizacoes: autorizacoes,
-            total: autorizacoes.length
-        });
-        
-    } catch (error) {
-        console.error('❌ Erro no endpoint alternativo:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Erro ao buscar autorizações',
-            details: process.env.NODE_ENV === 'development' ? error.message : 'Erro interno'
-        });
-    }
-});
-
-// ✅ 17. ENDPOINT GERAL DE SOLICITAÇÕES (FRONTEND)
-app.post('/api/solicitacoes', async (req, res) => {
-    try {
-        console.log('📤 Endpoint /api/solicitacoes recebido');
-        
-        const { 
-            usuarioId, 
-            cursoId, 
-            aulaId, 
-            tipo = 'autorizacao_automatica',
-            motivo, 
-            automatica,
-            aulaTitulo,
-            cursoTitulo
-        } = req.body;
-        
-        console.log('📦 Dados recebidos:', {
-            usuarioId,
-            cursoId,
-            aulaId,
-            tipo,
-            motivo: motivo ? motivo.substring(0, 100) + '...' : 'Sem motivo',
-            automatica
-        });
-        
-        if (!usuarioId || !cursoId || !aulaId) {
-            return res.status(400).json({
-                success: false,
-                error: 'Dados incompletos',
-                details: 'Forneça usuarioId, cursoId e aulaId'
-            });
-        }
-        
-        const usuarioIdInt = parseInt(usuarioId);
-        const cursoIdInt = parseInt(cursoId);
-        const aulaIdInt = parseInt(aulaId);
-        
-        // Verificar se usuário existe
-        const usuario = await prisma.usuario.findUnique({
-            where: { id: usuarioIdInt }
-        });
-        
-        if (!usuario) {
-            return res.status(404).json({
-                success: false,
-                error: 'Usuário não encontrado'
-            });
-        }
-        
-        // Verificar se curso existe
-        const curso = await prisma.curso.findUnique({
-            where: { id: cursoIdInt }
-        });
-        
-        if (!curso) {
-            return res.status(404).json({
-                success: false,
-                error: 'Curso não encontrado'
-            });
-        }
-        
-        // Verificar se aula existe
-        const aula = await prisma.aula.findUnique({
-            where: { id: aulaIdInt },
-            include: { modulo: true }
-        });
-        
-        if (!aula) {
-            return res.status(404).json({
-                success: false,
-                error: 'Aula não encontrada'
-            });
-        }
-        
-        // Verificar se já existe solicitação pendente
-        const solicitacaoExistente = await prisma.solicitacaoAutorizacao.findFirst({
-            where: {
-                usuarioId: usuarioIdInt,
-                cursoId: cursoIdInt,
-                aulaId: aulaIdInt,
-                status: 'pendente'
-            }
-        });
-        
-        if (solicitacaoExistente) {
-            console.log('ℹ️ Solicitação já existe:', solicitacaoExistente.id);
-            return res.status(200).json({
-                success: true,
-                message: 'Solicitação já existe e está pendente',
-                solicitacao: solicitacaoExistente,
-                jaExistia: true
-            });
-        }
-        
-        // Criar motivo se não fornecido
-        const motivoFinal = motivo || 
-            (automatica 
-                ? `🤖 Solicitação automática: Aluno ${usuario.nome} completou aula anterior e aguarda liberação.`
-                : `✍️ Solicitação manual: Aluno ${usuario.nome} solicitou acesso à aula.`);
-        
-        // Criar solicitação
-        const novaSolicitacao = await prisma.solicitacaoAutorizacao.create({
-            data: {
-                tipo: tipo === 'autorizacao_automatica' ? 'automatica' : 'manual',
-                usuarioId: usuarioIdInt,
-                cursoId: cursoIdInt,
-                aulaId: aulaIdInt,
-                moduloId: aula.moduloId,
-                motivo: motivoFinal,
-                status: 'pendente',
-                criadoEm: new Date(),
-                atualizadoEm: new Date()
-            },
-            include: {
-                usuario: {
-                    select: { id: true, nome: true, ra: true }
-                },
-                curso: {
-                    select: { id: true, titulo: true }
-                },
-                aula: {
-                    select: { id: true, titulo: true }
-                }
-            }
-        });
-        
-        console.log(`✅ Solicitação criada via endpoint geral: ${novaSolicitacao.id}`);
-        
-        res.status(201).json({
-            success: true,
-            message: automatica 
-                ? 'Solicitação automática registrada! O administrador será notificado.' 
-                : 'Solicitação enviada ao administrador! Aguarde aprovação.',
-            solicitacao: novaSolicitacao,
-            jaExistia: false
-        });
-        
-    } catch (error) {
-        console.error('❌ Erro no endpoint geral de solicitações:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Erro ao criar solicitação',
-            details: process.env.NODE_ENV === 'development' ? error.message : 'Erro interno'
         });
     }
 });
@@ -5446,5 +5215,6 @@ process.on('SIGTERM', async () => {
 });
 
 startServer();
+
 
 
