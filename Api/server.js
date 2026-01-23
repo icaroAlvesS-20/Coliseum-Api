@@ -3566,6 +3566,82 @@ app.get('/api/autorizacoes', async (req, res) => {
 
 // ========== SOLICITAÇÕES DE AUTORIZAÇÃO ========== //
 
+app.get('/api/solicitacoes', async (req, res) => {
+    try {
+        console.log('📋 GET /api/solicitacoes - Buscando todas as solicitações');
+        
+        const { status, tipo, cursoId, usuarioId } = req.query;
+        
+        const whereClause = {};
+        if (status) whereClause.status = status;
+        if (tipo) whereClause.tipo = tipo;
+        if (cursoId) whereClause.cursoId = parseInt(cursoId);
+        if (usuarioId) whereClause.usuarioId = parseInt(usuarioId);
+        
+        const solicitacoes = await prisma.solicitacaoAutorizacao.findMany({
+            where: whereClause,
+            include: {
+                usuario: {
+                    select: { 
+                        id: true, 
+                        nome: true, 
+                        ra: true, 
+                        serie: true, 
+                        curso: true 
+                    }
+                },
+                curso: {
+                    select: { 
+                        id: true, 
+                        titulo: true, 
+                        materia: true 
+                    }
+                },
+                aula: {
+                    select: { 
+                        id: true, 
+                        titulo: true 
+                    }
+                },
+                modulo: {
+                    select: { 
+                        id: true, 
+                        titulo: true 
+                    }
+                },
+                admin: {
+                    select: { 
+                        nome: true 
+                    }
+                }
+            },
+            orderBy: { 
+                criadoEm: 'desc' 
+            }
+        });
+        
+        console.log(`✅ ${solicitacoes.length} solicitações encontradas`);
+        
+        res.json({
+            success: true,
+            solicitacoes: solicitacoes,
+            total: solicitacoes.length,
+            resumo: {
+                pendentes: solicitacoes.filter(s => s.status === 'pendente').length,
+                aprovadas: solicitacoes.filter(s => s.status === 'aprovado').length,
+                rejeitadas: solicitacoes.filter(s => s.status === 'rejeitado').length
+            }
+        });
+        
+    } catch (error) {
+        console.error('❌ Erro ao buscar solicitações:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Erro ao buscar solicitações'
+        });
+    }
+});
+
 // ✅ 7. CRIAR SOLICITAÇÃO DE AUTORIZAÇÃO - VERSÃO ROBUSTA
 app.post('/api/solicitacoes', async (req, res) => {
     console.log('\n=== SOLICITAÇÃO RECEBIDA (Geral) ===');
@@ -5223,6 +5299,7 @@ process.on('SIGTERM', async () => {
 });
 
 startServer();
+
 
 
 
