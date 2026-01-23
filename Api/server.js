@@ -35,11 +35,15 @@ if (!process.env.DATABASE_URL) {
 }
 
 app.use(cors({
-  origin: true, 
+  origin: process.env.NODE_ENV === 'production' 
+    ? ['https://seu-frontend.com', 'https://outro-frontend.com'] 
+    : true,
   credentials: true, 
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'usuarioId', 'x-user-id'],
-  exposedHeaders: ['Content-Length', 'X-Keep-Alive', 'X-Request-Id']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 
+                   'Accept', 'Origin', 'usuarioId', 'x-user-id'],
+  exposedHeaders: ['Content-Length', 'X-Keep-Alive', 'X-Request-Id', 
+                   'usuarioId', 'x-user-id', 'X-Total-Cursos']
 }));
 
 app.options('*', cors());
@@ -2642,119 +2646,212 @@ app.get('/api/aulas/:id', async (req, res) => {
 
 // ========== SISTEMA DE PROGRESSO ========== //
 
+// ✅ POST SALVAR PROGRESSO - COM VALIDAÇÃO
 app.post('/api/progresso/aula', async (req, res) => {
-  try {
-    const { usuarioId, aulaId, concluida } = req.body;
-
-    if (!usuarioId || !aulaId) {
-      return res.status(400).json({ 
-        success: false,
-        error: 'Dados incompletos',
-        details: 'Forneça usuarioId e aulaId'
-      });
-    }
-
-    console.log(`📊 Salvando progresso - Usuário: ${usuarioId}, Aula: ${aulaId}`);
-
-    const usuario = await prisma.usuario.findUnique({
-      where: { id: parseInt(usuarioId) }
-    });
-
-    if (!usuario) {
-      return res.status(404).json({ 
-        success: false,
-        error: 'Usuário não encontrado' 
-      });
-    }
-
-    const aula = await prisma.aula.findUnique({
-      where: { id: parseInt(aulaId) },
-      include: {
-        modulo: true
-      }
-    });
-
-    if (!aula) {
-      return res.status(404).json({ 
-        success: false,
-        error: 'Aula não encontrada' 
-      });
-    }
-
-    const progressoExistente = await prisma.progressoAula.findFirst({
-      where: {
-        usuarioId: parseInt(usuarioId),
-        aulaId: parseInt(aulaId)
-      }
-    });
-
-    let progresso;
-
-    if (progressoExistente) {
-      progresso = await prisma.progressoAula.update({
-        where: { id: progressoExistente.id },
-        data: {
-          concluida: concluida !== undefined ? concluida : true,
-          dataConclusao: concluida !== false ? new Date() : null,
-          atualizadoEm: new Date()
-        }
-      });
-    } else {
-      progresso = await prisma.progressoAula.create({
-        data: {
-          usuarioId: parseInt(usuarioId),
-          aulaId: parseInt(aulaId),
-          concluida: concluida !== undefined ? concluida : true,
-          dataConclusao: concluida !== false ? new Date() : null
-        }
-      });
-    }
-
-    console.log(`✅ Progresso salvo: ${progresso.id}`);
-
-    if (aula.modulo) {
-      await atualizarProgressoModulo(parseInt(usuarioId), aula.modulo.id);
-    }
-
-    res.json({
-      success: true,
-      message: 'Progresso salvo com sucesso!',
-      progresso: progresso
-    });
-
-  } catch (error) {
-    console.error('❌ Erro ao salvar progresso:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Erro ao salvar progresso',
-      details: process.env.NODE_ENV === 'development' ? error.message : 'Erro interno'
-    });
-  }
-
-setTimeout(async () => {
     try {
-        if (concluida === true) {
-            console.log(`🚀 Disparando solicitação automática para próxima aula...`);
-            
-            // Chamar endpoint de solicitação automática
-            await fetch(`${req.protocol}://${req.get('host')}/api/solicitacoes/automatica`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'User-Agent': 'Sistema-Solicitacoes-Automaticas/1.0'
-                },
-                body: JSON.stringify({
-                    usuarioId: parseInt(usuarioId),
-                    cursoId: aula.modulo ? aula.modulo.cursoId : parseInt(cursoId),
-                    aulaConcluidaId: parseInt(aulaId)
-                })
+        const { usuarioId, aulaId, concluida } = req.body;
+
+        if (!usuarioId || !aulaId) {
+            return res.status(400).json({ 
+                success: false,
+                error: 'Dados incompletos',
+                details: 'Forneça usuarioId e aulaId'
             });
         }
-    } catch (fetchError) {
-        console.warn('⚠️ Não foi possível criar solicitação automática:', fetchError.message);
+
+        console.log(`📊 Salvando progresso - Usuário: ${usuarioId}, Aula: ${aulaId}`);
+
+        // 1. Verificar usuário
+        const usuario = await prisma.usuario.findUnique({
+            where: { id: parseInt(usuarioId) }
+        });
+
+        if (!usuario) {
+            return res.status(404).json({ 
+                success: false,
+                error: 'Usuário não encontrado' 
+            });
+        }
+
+        // 2. Verificar aula
+        const aula = await prisma.aula.findUnique({
+            where: { id: parseInt(aulaId) },
+            include: {
+                modulo: {
+                    include: {
+                        curso: true
+                    }
+                }
+            }
+        });
+
+        if (!aula) {
+            return res.status(404).json({ 
+                success: false,
+                error: 'Aula não encontrada' 
+            });
+        }
+
+        // 3. Verificar permissão do curso
+        if (!verificarPermissaoCurso(usuario.curso, aula.modulo.curso.materia)) {
+            return res.status(403).json({
+                success: false,
+                error: 'Acesso negado',
+                details: `Seu curso (${usuario.curso}) não tem acesso a ${aula.modulo.curso.materia}`
+            });
+        }
+
+        // 4. Verificar autorização (se não for admin)
+        if (usuario.curso !== 'admin') {
+            const autorizada = await verificarAutorizacaoAula(
+                parseInt(usuarioId),
+                aula.modulo.curso.id,
+                parseInt(aulaId)
+            );
+            
+            if (!autorizada.autorizada && !concluida) {
+                return res.status(403).json({
+                    success: false,
+                    error: 'Aula não autorizada',
+                    details: 'Você precisa de autorização para acessar esta aula'
+                });
+            }
+        }
+
+        const progressoExistente = await prisma.progressoAula.findFirst({
+            where: {
+                usuarioId: parseInt(usuarioId),
+                aulaId: parseInt(aulaId)
+            }
+        });
+
+        let progresso;
+
+        if (progressoExistente) {
+            progresso = await prisma.progressoAula.update({
+                where: { id: progressoExistente.id },
+                data: {
+                    concluida: concluida !== undefined ? concluida : true,
+                    dataConclusao: concluida !== false ? new Date() : null,
+                    atualizadoEm: new Date()
+                }
+            });
+        } else {
+            progresso = await prisma.progressoAula.create({
+                data: {
+                    usuarioId: parseInt(usuarioId),
+                    aulaId: parseInt(aulaId),
+                    concluida: concluida !== undefined ? concluida : true,
+                    dataConclusao: concluida !== false ? new Date() : null
+                }
+            });
+        }
+
+        console.log(`✅ Progresso salvo: ${progresso.id}`);
+
+        if (aula.modulo && concluida !== false) {
+            await atualizarProgressoModulo(parseInt(usuarioId), aula.modulo.id);
+            
+            // Solicitação automática para próxima aula
+            if (concluida === true) {
+                setTimeout(async () => {
+                    try {
+                        const response = await fetch(`${req.protocol}://${req.get('host')}/api/solicitacoes/automatica`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                usuarioId: parseInt(usuarioId),
+                                cursoId: aula.modulo.curso.id,
+                                aulaConcluidaId: parseInt(aulaId)
+                            })
+                        });
+                        
+                        if (response.ok) {
+                            console.log('🚀 Solicitação automática criada');
+                        }
+                    } catch (error) {
+                        console.warn('⚠️ Não foi possível criar solicitação automática:', error.message);
+                    }
+                }, 1000);
+            }
+        }
+
+        res.json({
+            success: true,
+            message: 'Progresso salvo com sucesso!',
+            progresso: progresso
+        });
+
+    } catch (error) {
+        console.error('❌ Erro ao salvar progresso:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Erro ao salvar progresso',
+            details: process.env.NODE_ENV === 'development' ? error.message : 'Erro interno'
+        });
     }
-}, 100);
 });
+
+// ✅ FUNÇÃO AUXILIAR PARA VERIFICAR AUTORIZAÇÃO
+async function verificarAutorizacaoAula(usuarioId, cursoId, aulaId) {
+    try {
+        // 1. Verificar se já está concluída (permite revisão)
+        const progresso = await prisma.progressoAula.findFirst({
+            where: {
+                usuarioId: usuarioId,
+                aulaId: aulaId,
+                concluida: true
+            }
+        });
+        
+        if (progresso) {
+            return { autorizada: true, motivo: 'Aula já concluída' };
+        }
+        
+        // 2. Buscar aula para obter módulo
+        const aula = await prisma.aula.findUnique({
+            where: { id: aulaId },
+            select: { moduloId: true }
+        });
+        
+        if (!aula) {
+            return { autorizada: false, motivo: 'Aula não encontrada' };
+        }
+        
+        // 3. Verificar autorizações ativas
+        const autorizacoes = await prisma.autorizacaoAula.findMany({
+            where: {
+                usuarioId: usuarioId,
+                cursoId: cursoId,
+                ativo: true,
+                OR: [
+                    { dataExpiracao: null },
+                    { dataExpiracao: { gt: new Date() } }
+                ]
+            }
+        });
+        
+        for (const auth of autorizacoes) {
+            if (auth.tipo === 'liberar_todas') {
+                return { autorizada: true, motivo: 'Curso totalmente liberado' };
+            }
+            
+            if (auth.tipo === 'liberar_modulo' && auth.moduloId === aula.moduloId) {
+                return { autorizada: true, motivo: 'Módulo liberado' };
+            }
+            
+            if (auth.tipo === 'liberar_aula' && auth.aulaId === aulaId) {
+                return { autorizada: true, motivo: 'Aula específica liberada' };
+            }
+        }
+        
+        return { autorizada: false, motivo: 'Sem autorização' };
+        
+    } catch (error) {
+        console.error('❌ Erro ao verificar autorização:', error);
+        return { autorizada: false, motivo: 'Erro ao verificar' };
+    }
+}
 
 // ✅ GET PROGRESSO DO USUÁRIO EM UM CURSO
 app.get('/api/progresso/cursos/:cursoId', async (req, res) => {
@@ -2975,19 +3072,6 @@ function formatarRespostaErro(res, status, mensagem, detalhes = null) {
     details: detalhes
   });
 }
-function validarId(id) {
-    if (!id || id === 'undefined' || id === 'null') {
-        return null;
-    }
-    
-    const idNumber = parseInt(id);
-    if (isNaN(idNumber) || idNumber <= 0) {
-        return null;
-    }
-    
-    return idNumber;
-}
-
 function handlePrismaError(res, error) {
     console.error('❌ Erro no Prisma:', error);
     
@@ -3023,26 +3107,27 @@ function formatarRespostaSucesso(res, data, mensagem = 'Operação realizada com
 function validarDataExpiracao(dataString) {
     if (!dataString) return null;
     
-    const data = new Date(dataString);
+    let data = new Date(dataString);
+    
     if (isNaN(data.getTime())) {
-        throw new Error('Data de expiração inválida');
+        const partes = dataString.split('/');
+        if (partes.length === 3) {
+            data = new Date(`${partes[2]}-${partes[1]}-${partes[0]}T00:00:00`);
+        }
+        
+        if (isNaN(data.getTime())) {
+            throw new Error('Data de expiração inválida. Use formato ISO (YYYY-MM-DD) ou DD/MM/YYYY');
+        }
     }
     
-    // Verificar se a data não é no passado
-    if (data < new Date()) {
+    const agora = new Date();
+    agora.setHours(0, 0, 0, 0); 
+    
+    if (data < agora) {
         throw new Error('Data de expiração não pode ser no passado');
     }
     
     return data;
-}
-
-function logRequisicao(tipo, endpoint, dados = {}) {
-    const timestamp = new Date().toISOString();
-    console.log(`[${timestamp}] ${tipo} ${endpoint}`);
-    
-    if (Object.keys(dados).length > 0) {
-        console.log('📦 Dados:', JSON.stringify(dados, null, 2));
-    }
 }
 // ========== SISTEMA DE AUTORIZAÇÃO ========== //
 
@@ -3661,20 +3746,17 @@ app.get('/api/solicitacoes', async (req, res) => {
     }
 });
 
-// ✅ 7. CRIAR SOLICITAÇÃO DE AUTORIZAÇÃO - VERSÃO ROBUSTA
+// ✅ POST CRIAR SOLICITAÇÃO DE AUTORIZAÇÃO - VERSÃO CORRIGIDA
 app.post('/api/solicitacoes', async (req, res) => {
     console.log('\n=== SOLICITAÇÃO RECEBIDA (Geral) ===');
     console.log('📦 Body:', JSON.stringify(req.body, null, 2));
-    console.log('📡 Headers:', req.headers);
     
     try {
         const { 
             usuarioId, 
             cursoId, 
             aulaId, 
-            tipo = 'manual',
-            motivo, 
-            automatica = false 
+            motivo 
         } = req.body;
 
         // VALIDAÇÃO BÁSICA
@@ -3687,7 +3769,7 @@ app.post('/api/solicitacoes', async (req, res) => {
             });
         }
 
-        console.log(`📝 Criando solicitação: Tipo=${tipo}, Usuário=${usuarioId}, Aula=${aulaId}`);
+        console.log(`📝 Criando solicitação: Usuário=${usuarioId}, Aula=${aulaId}`);
 
         // 1. Verificar se usuário existe
         const usuario = await prisma.usuario.findUnique({
@@ -3717,7 +3799,8 @@ app.post('/api/solicitacoes', async (req, res) => {
 
         // 3. Verificar se aula existe
         const aula = await prisma.aula.findUnique({
-            where: { id: parseInt(aulaId) }
+            where: { id: parseInt(aulaId) },
+            include: { modulo: true }
         });
         
         if (!aula) {
@@ -3748,17 +3831,17 @@ app.post('/api/solicitacoes', async (req, res) => {
             });
         }
 
-        // 5. Criar nova solicitação
+        // 5. Criar nova solicitação (SEM campos que não existem no schema)
         const novaSolicitacao = await prisma.solicitacaoAutorizacao.create({
             data: {
-                tipo: tipo === 'automatica' ? 'automatica' : 'manual',
                 usuarioId: parseInt(usuarioId),
                 cursoId: parseInt(cursoId),
                 aulaId: parseInt(aulaId),
                 moduloId: aula.moduloId,
-                motivo: motivo || `Solicitação ${tipo === 'automatica' ? 'automática' : 'manual'} do usuário ${usuario.nome}`,
+                motivo: motivo || `Solicitação do usuário ${usuario.nome} para a aula "${aula.titulo}"`,
                 status: 'pendente',
-                automatica: automatica === true
+                criadoEm: new Date(),
+                atualizadoEm: new Date()
             },
             include: {
                 usuario: {
@@ -3776,30 +3859,11 @@ app.post('/api/solicitacoes', async (req, res) => {
         console.log(`✅ Solicitação criada com sucesso: ${novaSolicitacao.id}`);
         console.log(`📧 Detalhes: Usuário=${usuario.nome}, Curso=${curso.titulo}, Aula=${aula.titulo}`);
 
-        // 6. Criar notificação para o admin (opcional)
-        try {
-            await prisma.notificacaoAmizade.create({
-                data: {
-                    tipo: 'solicitacao_aula',
-                    usuarioId: 1, // ID do admin
-                    remetenteId: parseInt(usuarioId),
-                    lida: false,
-                    mensagem: `Nova solicitação de aula: ${usuario.nome} para ${aula.titulo}`
-                }
-            });
-            console.log('🔔 Notificação criada para o admin');
-        } catch (notifError) {
-            console.warn('⚠️ Não foi possível criar notificação:', notifError.message);
-        }
-
         return res.status(201).json({
             success: true,
-            message: automatica 
-                ? 'Solicitação automática registrada!' 
-                : 'Solicitação enviada ao administrador!',
+            message: 'Solicitação enviada ao administrador!',
             solicitacaoId: novaSolicitacao.id,
-            solicitacao: novaSolicitacao,
-            tipo: novaSolicitacao.tipo
+            solicitacao: novaSolicitacao
         });
 
     } catch (error) {
@@ -3812,8 +3876,8 @@ app.post('/api/solicitacoes', async (req, res) => {
             details: process.env.NODE_ENV === 'development' ? error.message : 'Erro interno'
         });
     }
-})
-  ;
+});
+
 // ✅ CORREÇÃO CRÍTICA: Endpoint específico para solicitações automáticas
 app.post('/api/solicitacoes/automatica', async (req, res) => {
     console.log('🤖 === SOLICITAÇÃO AUTOMÁTICA RECEBIDA ===');
@@ -3927,17 +3991,15 @@ app.post('/api/solicitacoes/automatica', async (req, res) => {
             });
         }
         
-        // 4. Criar nova solicitação (SEM o campo 'tipo' que não existe)
+        // 4. Criar nova solicitação (SEM campos inexistentes)
         const novaSolicitacao = await prisma.solicitacaoAutorizacao.create({
             data: {
-                // ⚠️ NÃO INCLUA 'tipo' - esse campo não existe no seu schema
                 usuarioId: parseInt(usuarioId),
                 cursoId: parseInt(cursoId),
                 aulaId: proximaAula.id,
                 moduloId: proximaAula.moduloId,
                 motivo: `✅ SISTEMA AUTOMÁTICO: Aluno completou "${aulaConcluida.titulo}" e está pronto para "${proximaAula.titulo}"`,
                 status: 'pendente',
-                automatica: true,
                 criadoEm: new Date(),
                 atualizadoEm: new Date()
             },
@@ -3950,32 +4012,11 @@ app.post('/api/solicitacoes/automatica', async (req, res) => {
         
         console.log(`✅ Solicitação criada: ${novaSolicitacao.id}`);
         
-        // 5. Notificação opcional
-        try {
-            await prisma.notificacaoAmizade.create({
-                data: {
-                    tipo: 'solicitacao_aula',
-                    usuarioId: 1,
-                    remetenteId: parseInt(usuarioId),
-                    lida: false,
-                    mensagem: `🎯 SOLICITAÇÃO AUTOMÁTICA: Aluno completou "${aulaConcluida.titulo}" e aguarda "${proximaAula.titulo}"`,
-                    criadoEm: new Date()
-                }
-            });
-            console.log('🔔 Notificação criada');
-        } catch (notifError) {
-            console.warn('⚠️ Erro na notificação:', notifError.message);
-        }
-        
         return res.status(201).json({
             success: true,
             message: 'Solicitação automática registrada!',
             solicitacaoId: novaSolicitacao.id,
-            solicitacao: {
-                id: novaSolicitacao.id,
-                status: novaSolicitacao.status,
-                automatica: novaSolicitacao.automatica
-            },
+            solicitacao: novaSolicitacao,
             proximaAula: {
                 id: proximaAula.id,
                 titulo: proximaAula.titulo
@@ -5361,6 +5402,7 @@ process.on('SIGTERM', async () => {
 });
 
 startServer();
+
 
 
 
