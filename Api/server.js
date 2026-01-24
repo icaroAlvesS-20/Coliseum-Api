@@ -3312,7 +3312,10 @@ app.get('/api/autorizacoes/curso/:cursoId/usuario/:usuarioId', async (req, res) 
 });
 
 // ✅ 3. CRIAR AUTORIZAÇÃO MANUALMENTE (ADMIN)
+// ✅ CORREÇÃO: POST CRIAR AUTORIZAÇÃO
 app.post('/api/autorizacoes', async (req, res) => {
+    console.log('📝 CRIAR AUTORIZAÇÃO - Body:', JSON.stringify(req.body, null, 2));
+    
     try {
         const { 
             tipo, 
@@ -3325,10 +3328,11 @@ app.post('/api/autorizacoes', async (req, res) => {
             adminId 
         } = req.body;
         
-        console.log(`📝 Criando autorização - Tipo: ${tipo}, Usuário: ${usuarioId}`);
+        console.log(`🔍 Validando dados: Tipo=${tipo}, Usuário=${usuarioId}, Admin=${adminId}`);
         
         // Validações
         if (!tipo || !usuarioId || !cursoId || !adminId) {
+            console.log('❌ Dados incompletos');
             return res.status(400).json({
                 success: false,
                 error: 'Dados incompletos',
@@ -3337,6 +3341,7 @@ app.post('/api/autorizacoes', async (req, res) => {
         }
         
         if (!['liberar_aula', 'liberar_modulo', 'liberar_todas'].includes(tipo)) {
+            console.log('❌ Tipo inválido:', tipo);
             return res.status(400).json({
                 success: false,
                 error: 'Tipo inválido',
@@ -3360,46 +3365,43 @@ app.post('/api/autorizacoes', async (req, res) => {
             });
         }
         
-        // Verificar se já existe autorização similar ativa
-        const whereClause = {
-            usuarioId: parseInt(usuarioId),
-            cursoId: parseInt(cursoId),
-            tipo,
-            ativo: true,
-            OR: [
-                { dataExpiracao: null },
-                { dataExpiracao: { gt: new Date() } }
-            ]
-        };
-        
-        if (tipo === 'liberar_aula') {
-            whereClause.aulaId = parseInt(aulaId);
-        } else if (tipo === 'liberar_modulo') {
-            whereClause.moduloId = parseInt(moduloId);
-        }
-        
-        const autorizacaoExistente = await prisma.autorizacaoAula.findFirst({
-            where: whereClause
+        // Verificar se usuário existe
+        const usuario = await prisma.usuario.findUnique({
+            where: { id: parseInt(usuarioId) }
         });
         
-        if (autorizacaoExistente) {
-            return res.status(409).json({
+        if (!usuario) {
+            console.log(`❌ Usuário não encontrado: ${usuarioId}`);
+            return res.status(404).json({
                 success: false,
-                error: 'Autorização já existe',
-                details: `Já existe uma autorização ${tipo} ativa para este usuário`,
-                autorizacao: autorizacaoExistente
+                error: 'Usuário não encontrado'
             });
         }
+        
+        // Verificar se admin existe
+        const admin = await prisma.usuario.findUnique({
+            where: { id: parseInt(adminId) }
+        });
+        
+        if (!admin) {
+            console.log(`❌ Admin não encontrado: ${adminId}`);
+            return res.status(404).json({
+                success: false,
+                error: 'Administrador não encontrado'
+            });
+        }
+        
+        console.log('✅ Validações passadas. Criando autorização...');
         
         // Criar autorização
         const autorizacao = await prisma.autorizacaoAula.create({
             data: {
-                tipo,
+                tipo: tipo,
                 usuarioId: parseInt(usuarioId),
                 cursoId: parseInt(cursoId),
                 aulaId: aulaId ? parseInt(aulaId) : null,
                 moduloId: moduloId ? parseInt(moduloId) : null,
-                motivo: motivo || `Autorização concedida pelo administrador`,
+                motivo: motivo || `Autorização concedida pelo administrador ${admin.nome}`,
                 dataExpiracao: dataExpiracao ? new Date(dataExpiracao) : null,
                 adminId: parseInt(adminId),
                 ativo: true,
@@ -3425,7 +3427,7 @@ app.post('/api/autorizacoes', async (req, res) => {
             }
         });
         
-        console.log(`✅ Autorização criada: ${autorizacao.id} (${tipo})`);
+        console.log(`✅ Autorização criada com sucesso: ${autorizacao.id}`);
         
         res.status(201).json({
             success: true,
@@ -3434,14 +3436,33 @@ app.post('/api/autorizacoes', async (req, res) => {
         });
         
     } catch (error) {
-        console.error('❌ Erro ao criar autorização:', error);
-        res.status(500).json({
+        console.error('💥 ERRO AO CRIAR AUTORIZAÇÃO:', error);
+        console.error('Código do erro:', error.code);
+        console.error('Mensagem:', error.message);
+        console.error('Stack:', error.stack);
+        
+        let mensagem = 'Erro ao criar autorização';
+        let status = 500;
+        
+        if (error.code === 'P2002') {
+            mensagem = 'Já existe uma autorização similar';
+            status = 409;
+        } else if (error.code === 'P2003') {
+            mensagem = 'ID de usuário, curso ou aula inválido';
+            status = 400;
+        } else if (error.code === 'P2025') {
+            mensagem = 'Registro não encontrado';
+            status = 404;
+        }
+        
+        res.status(status).json({
             success: false,
-            error: 'Erro ao criar autorização'
+            error: mensagem,
+            details: process.env.NODE_ENV === 'development' ? error.message : 'Erro interno',
+            code: error.code
         });
     }
 });
-
 // ✅ 4. CRIAR AUTORIZAÇÃO EM MASSA (ADMIN)
 app.post('/api/autorizacoes/massa', async (req, res) => {
     try {
@@ -4640,15 +4661,75 @@ app.get('/api/sistema/autorizacao/estatisticas', async (req, res) => {
 
 // ========== SISTEMA DE VÍDEOS ========== //
 
+// ✅ CORREÇÃO: GET TODOS OS VÍDEOS
 app.get('/api/videos', async (req, res) => {
-  try {
-    const videos = await prisma.video.findMany({ 
-      orderBy: { materia: 'asc' } 
-    });
-    res.json(videosComUrlsDescriptografadas);
-  } catch (error) {
-    handleError(res, error, 'Erro ao carregar vídeos');
-  }
+    console.log('🎬 GET /api/videos');
+    
+    try {
+        const videos = await prisma.video.findMany({ 
+            orderBy: { materia: 'asc' } 
+        });
+        
+        console.log(`✅ ${videos.length} vídeos encontrados`);
+        
+        // Descriptografar URLs se existirem
+        const videosProcessados = videos.map(video => {
+            const videoProcessado = { ...video };
+            
+            // Se tiver URL criptografada, tentar descriptografar
+            if (video.url && video.iv && video.tag) {
+                try {
+                    const descriptografado = encryptionService.decryptYouTubeUrl({
+                        encrypted: video.url,
+                        iv: video.iv,
+                        tag: video.tag
+                    });
+                    
+                    if (descriptografado) {
+                        videoProcessado.url = descriptografado;
+                    }
+                } catch (cryptoError) {
+                    console.warn(`⚠️ Erro ao descriptografar vídeo ${video.id}:`, cryptoError.message);
+                    // Manter URL criptografada
+                }
+            }
+            
+            return videoProcessado;
+        });
+        
+        res.json(videosProcessados);
+        
+    } catch (error) {
+        console.error('❌ ERRO AO CARREGAR VÍDEOS:', error);
+        
+        try {
+            const videos = await prisma.video.findMany({ 
+                orderBy: { materia: 'asc' },
+                select: {
+                    id: true,
+                    titulo: true,
+                    materia: true,
+                    categoria: true,
+                    descricao: true,
+                    duracao: true,
+                    criadoEm: true,
+                    atualizadoEm: true
+                }
+            });
+            
+            console.log(`✅ Fallback: ${videos.length} vídeos (sem URLs)`);
+            res.json(videos);
+            
+        } catch (fallbackError) {
+            console.error('💥 ERRO NO FALLBACK:', fallbackError);
+            
+            res.status(500).json({
+                success: false,
+                error: 'Erro ao carregar vídeos',
+                details: process.env.NODE_ENV === 'development' ? error.message : 'Erro interno'
+            });
+        }
+    }
 });
 
 // ✅ POST CRIAR VÍDEO (com criptografia)
@@ -5516,6 +5597,7 @@ process.on('SIGTERM', async () => {
 });
 
 startServer();
+
 
 
 
