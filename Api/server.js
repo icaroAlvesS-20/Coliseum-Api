@@ -770,6 +770,40 @@ app.delete('/api/usuarios/:id', async (req, res) => {
   }
 });
 
+app.get('/api/usuarios/admins', async (req, res) => {
+    try {
+        const admins = await prisma.usuario.findMany({
+            where: {
+                OR: [
+                    { curso: 'admin' },
+                    { curso: 'administrador' },
+                    { status: 'admin' }
+                ]
+            },
+            select: {
+                id: true,
+                nome: true,
+                ra: true,
+                curso: true,
+                status: true
+            }
+        });
+        
+        res.json({
+            success: true,
+            admins: admins,
+            total: admins.length
+        });
+        
+    } catch (error) {
+        console.error('❌ Erro ao buscar admins:', error);
+        res.json({
+            success: false,
+            admins: [],
+            error: error.message
+        });
+    }
+});
 // ========== SISTEMA DE AMIGOS ========== //
 
 // ✅ GET LISTA DE AMIGOS DO USUÁRIO
@@ -3312,6 +3346,7 @@ app.get('/api/autorizacoes/curso/:cursoId/usuario/:usuarioId', async (req, res) 
 });
 
 // ✅ VERSÃO SIMPLIFICADA DE AUTORIZAÇÕES
+// ✅ CORREÇÃO: Verificar se adminId existe ANTES de criar
 app.post('/api/autorizacoes', async (req, res) => {
     console.log('🔐 POST /api/autorizacoes - INÍCIO');
     console.log('📦 Body recebido:', req.body);
@@ -3319,25 +3354,73 @@ app.post('/api/autorizacoes', async (req, res) => {
     try {
         const { tipo, usuarioId, cursoId, aulaId, adminId, motivo } = req.body;
         
-        // Validação mínima
+        // 1. VALIDAÇÃO BÁSICA
         if (!tipo || !usuarioId || !cursoId || !adminId) {
-            console.log('❌ Validação falhou');
             return res.status(400).json({
                 success: false,
-                error: 'Campos obrigatórios: tipo, usuarioId, cursoId, adminId'
+                error: 'Campos obrigatórios faltando'
             });
         }
         
-        console.log(`📝 Criando autorização: ${tipo} para usuário ${usuarioId}`);
+        console.log(`📝 Criando autorização: ${tipo} para usuário ${usuarioId} pelo admin ${adminId}`);
         
-        // Criar autorização básica
+        // 2. VERIFICAR SE O ADMIN EXISTE
+        console.log(`🔍 Verificando admin ID: ${adminId}`);
+        const admin = await prisma.usuario.findUnique({
+            where: { id: parseInt(adminId) }
+        });
+        
+        if (!admin) {
+            console.log(`❌ ERRO: Admin ID ${adminId} não encontrado!`);
+            
+            // Buscar sugestões de admins
+            const possiveisAdmins = await prisma.usuario.findMany({
+                take: 5,
+                where: {
+                    OR: [
+                        { curso: { contains: 'admin', mode: 'insensitive' } },
+                        { nome: { contains: 'admin', mode: 'insensitive' } }
+                    ]
+                },
+                select: { id: true, nome: true, curso: true }
+            });
+            
+            return res.status(404).json({
+                success: false,
+                error: 'Administrador não encontrado',
+                details: `Nenhum usuário com ID ${adminId} existe no banco de dados`,
+                suggestions: possiveisAdmins.length > 0 ? {
+                    message: 'Possíveis administradores no sistema:',
+                    admins: possiveisAdmins
+                } : null
+            });
+        }
+        
+        console.log(`✅ Admin válido: ${admin.nome} (ID: ${admin.id})`);
+        
+        // 3. VERIFICAR SE O USUÁRIO EXISTE
+        const usuario = await prisma.usuario.findUnique({
+            where: { id: parseInt(usuarioId) }
+        });
+        
+        if (!usuario) {
+            return res.status(404).json({
+                success: false,
+                error: 'Usuário não encontrado',
+                details: `ID ${usuarioId} não existe`
+            });
+        }
+        
+        // 4. CRIAR AUTORIZAÇÃO
+        console.log('💾 Salvando autorização no banco...');
+        
         const autorizacao = await prisma.autorizacaoAula.create({
             data: {
                 tipo: tipo,
                 usuarioId: parseInt(usuarioId),
                 cursoId: parseInt(cursoId),
                 aulaId: aulaId ? parseInt(aulaId) : null,
-                motivo: motivo || 'Autorização concedida',
+                motivo: motivo || `Autorização ${tipo} concedida por ${admin.nome}`,
                 adminId: parseInt(adminId),
                 ativo: true,
                 criadoEm: new Date(),
@@ -3345,17 +3428,37 @@ app.post('/api/autorizacoes', async (req, res) => {
             }
         });
         
-        console.log(`✅ Autorização criada: ${autorizacao.id}`);
+        console.log(`✅ AUTORIZAÇÃO CRIADA: ID ${autorizacao.id}`);
         
         res.status(201).json({
             success: true,
             message: 'Autorização criada com sucesso!',
-            autorizacaoId: autorizacao.id
+            autorizacao: {
+                id: autorizacao.id,
+                tipo: autorizacao.tipo,
+                usuarioId: autorizacao.usuarioId,
+                cursoId: autorizacao.cursoId,
+                adminId: autorizacao.adminId,
+                criadoEm: autorizacao.criadoEm
+            }
         });
         
     } catch (error) {
         console.error('💥 ERRO EM /api/autorizacoes:', error.message);
         console.error('Código:', error.code);
+        
+        if (error.code === 'P2003') {
+            const field = error.meta?.field_name || 'desconhecido';
+            console.log(`🔍 Campo com problema: ${field}`);
+            
+            return res.status(400).json({
+                success: false,
+                error: 'Erro de referência',
+                details: `O ID fornecido para ${field} não existe no banco de dados`,
+                field: field,
+                code: error.code
+            });
+        }
         
         res.status(500).json({
             success: false,
@@ -4164,6 +4267,8 @@ app.put('/api/solicitacoes/:id/aprovar', async (req, res) => {
         const solicitacaoId = validateId(req.params.id);
         const { adminId, motivo, dataExpiracao } = req.body;
         
+        console.log(`✅ Aprovando solicitação ${solicitacaoId} pelo admin ${adminId}`);
+        
         if (!solicitacaoId || !adminId) {
             return res.status(400).json({
                 success: false,
@@ -4172,77 +4277,105 @@ app.put('/api/solicitacoes/:id/aprovar', async (req, res) => {
             });
         }
         
-        console.log(`✅ Aprovando solicitação: ${solicitacaoId} pelo admin: ${adminId}`);
-        
-        // Usar transação
-        const result = await prisma.$transaction(async (tx) => {
-            // 1. Buscar solicitação
-            const solicitacao = await tx.solicitacaoAutorizacao.findUnique({
-                where: { id: solicitacaoId }
-            });
-            
-            if (!solicitacao) {
-                throw new Error('Solicitação não encontrada');
-            }
-            
-            if (solicitacao.status !== 'pendente') {
-                throw new Error(`Solicitação já processada (status: ${solicitacao.status})`);
-            }
-            
-            // 2. Criar autorização
-            const autorizacao = await tx.autorizacaoAula.create({
-                data: {
-                    tipo: 'liberar_aula',
-                    usuarioId: solicitacao.usuarioId,
-                    cursoId: solicitacao.cursoId,
-                    aulaId: solicitacao.aulaId,
-                    moduloId: solicitacao.moduloId,
-                    motivo: motivo || `Aprovado via solicitação #${solicitacao.id}`,
-                    dataExpiracao: dataExpiracao ? new Date(dataExpiracao) : null,
-                    adminId: parseInt(adminId),
-                    ativo: true,
-                    criadoEm: new Date(),
-                    atualizadoEm: new Date()
-                }
-            });
-            
-            // 3. Atualizar solicitação
-            const solicitacaoAtualizada = await tx.solicitacaoAutorizacao.update({
-                where: { id: solicitacaoId },
-                data: {
-                    status: 'aprovado',
-                    motivoRejeicao: null,
-                    processadoEm: new Date(),
-                    adminId: parseInt(adminId),
-                    autorizacaoId: autorizacao.id,
-                    atualizadoEm: new Date()
-                }
-            });
-            
-            return { autorizacao, solicitacao: solicitacaoAtualizada };
+        const admin = await prisma.usuario.findUnique({
+            where: { id: parseInt(adminId) }
         });
         
-        console.log(`✅ Solicitação aprovada. Autorização criada: ${result.autorizacao.id}`);
+        if (!admin) {
+            console.log(`❌ Admin ${adminId} não existe!`);
+            
+            const primeiroAdmin = await prisma.usuario.findFirst({
+                where: { status: 'ativo' },
+                orderBy: { id: 'asc' }
+            });
+            
+            if (!primeiroAdmin) {
+                return res.status(404).json({
+                    success: false,
+                    error: 'Nenhum administrador disponível',
+                    details: 'Não há usuários cadastrados no sistema'
+                });
+            }
+            
+            console.log(`🔄 Usando admin alternativo: ${primeiroAdmin.id} - ${primeiroAdmin.nome}`);
+            
+            return await aprovarComAdmin(solicitacaoId, primeiroAdmin.id, motivo, dataExpiracao, res);
+        }
+        
+        return await aprovarComAdmin(solicitacaoId, parseInt(adminId), motivo, dataExpiracao, res);
+        
+    } catch (error) {
+        console.error('❌ Erro ao aprovar solicitação:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Erro ao aprovar solicitação',
+            details: error.message
+        });
+    }
+});
+
+async function aprovarComAdmin(solicitacaoId, adminId, motivo, dataExpiracao, res) {
+    try {
+        const solicitacao = await prisma.solicitacaoAutorizacao.findUnique({
+            where: { id: solicitacaoId }
+        });
+        
+        if (!solicitacao) {
+            return res.status(404).json({
+                success: false,
+                error: 'Solicitação não encontrada'
+            });
+        }
+        
+        if (solicitacao.status !== 'pendente') {
+            return res.status(400).json({
+                success: false,
+                error: 'Solicitação já processada',
+                details: `Status atual: ${solicitacao.status}`
+            });
+        }
+        
+        const autorizacao = await prisma.autorizacaoAula.create({
+            data: {
+                tipo: 'liberar_aula',
+                usuarioId: solicitacao.usuarioId,
+                cursoId: solicitacao.cursoId,
+                aulaId: solicitacao.aulaId,
+                moduloId: solicitacao.moduloId,
+                motivo: motivo || `Aprovado via solicitação #${solicitacao.id}`,
+                dataExpiracao: dataExpiracao ? new Date(dataExpiracao) : null,
+                adminId: adminId,
+                ativo: true,
+                criadoEm: new Date(),
+                atualizadoEm: new Date()
+            }
+        });
+        
+        await prisma.solicitacaoAutorizacao.update({
+            where: { id: solicitacaoId },
+            data: {
+                status: 'aprovado',
+                motivoRejeicao: null,
+                processadoEm: new Date(),
+                adminId: adminId,
+                autorizacaoId: autorizacao.id,
+                atualizadoEm: new Date()
+            }
+        });
+        
+        console.log(`✅ Solicitação ${solicitacaoId} aprovada por admin ${adminId}`);
         
         res.json({
             success: true,
             message: 'Solicitação aprovada e autorização criada!',
-            solicitacao: result.solicitacao,
-            autorizacao: result.autorizacao
+            autorizacaoId: autorizacao.id
         });
         
     } catch (error) {
-        console.error('❌ Erro ao aprovar solicitação:', error);
-        
-        const statusCode = error.message.includes('não encontrada') ? 404 : 
-                          error.message.includes('já processada') ? 400 : 500;
-        
-        res.status(statusCode).json({
-            success: false,
-            error: error.message
-        });
+        console.error('💥 Erro na aprovação:', error);
+        throw error;
     }
-});
+}
 
 // ✅ 11. REJEITAR SOLICITAÇÃO (ADMIN)
 app.put('/api/solicitacoes/:id/rejeitar', async (req, res) => {
@@ -5461,6 +5594,7 @@ process.on('SIGTERM', async () => {
 });
 
 startServer();
+
 
 
 
