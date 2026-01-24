@@ -3311,158 +3311,60 @@ app.get('/api/autorizacoes/curso/:cursoId/usuario/:usuarioId', async (req, res) 
     }
 });
 
-// ✅ 3. CRIAR AUTORIZAÇÃO MANUALMENTE (ADMIN)
-// ✅ CORREÇÃO: POST CRIAR AUTORIZAÇÃO
+// ✅ VERSÃO SIMPLIFICADA DE AUTORIZAÇÕES
 app.post('/api/autorizacoes', async (req, res) => {
-    console.log('📝 CRIAR AUTORIZAÇÃO - Body:', JSON.stringify(req.body, null, 2));
+    console.log('🔐 POST /api/autorizacoes - INÍCIO');
+    console.log('📦 Body recebido:', req.body);
     
     try {
-        const { 
-            tipo, 
-            usuarioId, 
-            cursoId, 
-            aulaId, 
-            moduloId, 
-            motivo, 
-            dataExpiracao, 
-            adminId 
-        } = req.body;
+        const { tipo, usuarioId, cursoId, aulaId, adminId, motivo } = req.body;
         
-        console.log(`🔍 Validando dados: Tipo=${tipo}, Usuário=${usuarioId}, Admin=${adminId}`);
-        
-        // Validações
+        // Validação mínima
         if (!tipo || !usuarioId || !cursoId || !adminId) {
-            console.log('❌ Dados incompletos');
+            console.log('❌ Validação falhou');
             return res.status(400).json({
                 success: false,
-                error: 'Dados incompletos',
-                details: 'Forneça tipo, usuarioId, cursoId e adminId'
+                error: 'Campos obrigatórios: tipo, usuarioId, cursoId, adminId'
             });
         }
         
-        if (!['liberar_aula', 'liberar_modulo', 'liberar_todas'].includes(tipo)) {
-            console.log('❌ Tipo inválido:', tipo);
-            return res.status(400).json({
-                success: false,
-                error: 'Tipo inválido',
-                details: 'Tipos válidos: liberar_aula, liberar_modulo, liberar_todas'
-            });
-        }
+        console.log(`📝 Criando autorização: ${tipo} para usuário ${usuarioId}`);
         
-        if (tipo === 'liberar_aula' && !aulaId) {
-            return res.status(400).json({
-                success: false,
-                error: 'Aula não especificada',
-                details: 'Para tipo liberar_aula, forneça aulaId'
-            });
-        }
-        
-        if (tipo === 'liberar_modulo' && !moduloId) {
-            return res.status(400).json({
-                success: false,
-                error: 'Módulo não especificado',
-                details: 'Para tipo liberar_modulo, forneça moduloId'
-            });
-        }
-        
-        // Verificar se usuário existe
-        const usuario = await prisma.usuario.findUnique({
-            where: { id: parseInt(usuarioId) }
-        });
-        
-        if (!usuario) {
-            console.log(`❌ Usuário não encontrado: ${usuarioId}`);
-            return res.status(404).json({
-                success: false,
-                error: 'Usuário não encontrado'
-            });
-        }
-        
-        // Verificar se admin existe
-        const admin = await prisma.usuario.findUnique({
-            where: { id: parseInt(adminId) }
-        });
-        
-        if (!admin) {
-            console.log(`❌ Admin não encontrado: ${adminId}`);
-            return res.status(404).json({
-                success: false,
-                error: 'Administrador não encontrado'
-            });
-        }
-        
-        console.log('✅ Validações passadas. Criando autorização...');
-        
-        // Criar autorização
+        // Criar autorização básica
         const autorizacao = await prisma.autorizacaoAula.create({
             data: {
                 tipo: tipo,
                 usuarioId: parseInt(usuarioId),
                 cursoId: parseInt(cursoId),
                 aulaId: aulaId ? parseInt(aulaId) : null,
-                moduloId: moduloId ? parseInt(moduloId) : null,
-                motivo: motivo || `Autorização concedida pelo administrador ${admin.nome}`,
-                dataExpiracao: dataExpiracao ? new Date(dataExpiracao) : null,
+                motivo: motivo || 'Autorização concedida',
                 adminId: parseInt(adminId),
                 ativo: true,
                 criadoEm: new Date(),
                 atualizadoEm: new Date()
-            },
-            include: {
-                usuario: {
-                    select: { id: true, nome: true, ra: true }
-                },
-                curso: {
-                    select: { id: true, titulo: true }
-                },
-                aula: {
-                    select: { id: true, titulo: true }
-                },
-                modulo: {
-                    select: { id: true, titulo: true }
-                },
-                admin: {
-                    select: { nome: true }
-                }
             }
         });
         
-        console.log(`✅ Autorização criada com sucesso: ${autorizacao.id}`);
+        console.log(`✅ Autorização criada: ${autorizacao.id}`);
         
         res.status(201).json({
             success: true,
             message: 'Autorização criada com sucesso!',
-            autorizacao
+            autorizacaoId: autorizacao.id
         });
         
     } catch (error) {
-        console.error('💥 ERRO AO CRIAR AUTORIZAÇÃO:', error);
-        console.error('Código do erro:', error.code);
-        console.error('Mensagem:', error.message);
-        console.error('Stack:', error.stack);
+        console.error('💥 ERRO EM /api/autorizacoes:', error.message);
+        console.error('Código:', error.code);
         
-        let mensagem = 'Erro ao criar autorização';
-        let status = 500;
-        
-        if (error.code === 'P2002') {
-            mensagem = 'Já existe uma autorização similar';
-            status = 409;
-        } else if (error.code === 'P2003') {
-            mensagem = 'ID de usuário, curso ou aula inválido';
-            status = 400;
-        } else if (error.code === 'P2025') {
-            mensagem = 'Registro não encontrado';
-            status = 404;
-        }
-        
-        res.status(status).json({
+        res.status(500).json({
             success: false,
-            error: mensagem,
-            details: process.env.NODE_ENV === 'development' ? error.message : 'Erro interno',
-            code: error.code
+            error: 'Erro ao criar autorização',
+            details: error.message
         });
     }
 });
+
 // ✅ 4. CRIAR AUTORIZAÇÃO EM MASSA (ADMIN)
 app.post('/api/autorizacoes/massa', async (req, res) => {
     try {
@@ -3922,8 +3824,6 @@ app.post('/api/solicitacoes', async (req, res) => {
     }
 });
 
-// ✅ CORREÇÃO CRÍTICA: Endpoint específico para solicitações automáticas
-// ✅ ENDPOINT COMPLETO COM TRATAMENTO DE ERROS
 app.post('/api/solicitacoes/automatica', async (req, res) => {
     console.log('🤖 ===== SOLICITAÇÃO AUTOMÁTICA INICIADA =====');
     console.log('📦 Body recebido:', JSON.stringify(req.body, null, 2));
@@ -4661,74 +4561,38 @@ app.get('/api/sistema/autorizacao/estatisticas', async (req, res) => {
 
 // ========== SISTEMA DE VÍDEOS ========== //
 
-// ✅ CORREÇÃO: GET TODOS OS VÍDEOS
 app.get('/api/videos', async (req, res) => {
-    console.log('🎬 GET /api/videos');
+    console.log('🎬 GET /api/videos - INÍCIO');
     
     try {
         const videos = await prisma.video.findMany({ 
-            orderBy: { materia: 'asc' } 
-        });
-        
-        console.log(`✅ ${videos.length} vídeos encontrados`);
-        
-        // Descriptografar URLs se existirem
-        const videosProcessados = videos.map(video => {
-            const videoProcessado = { ...video };
-            
-            // Se tiver URL criptografada, tentar descriptografar
-            if (video.url && video.iv && video.tag) {
-                try {
-                    const descriptografado = encryptionService.decryptYouTubeUrl({
-                        encrypted: video.url,
-                        iv: video.iv,
-                        tag: video.tag
-                    });
-                    
-                    if (descriptografado) {
-                        videoProcessado.url = descriptografado;
-                    }
-                } catch (cryptoError) {
-                    console.warn(`⚠️ Erro ao descriptografar vídeo ${video.id}:`, cryptoError.message);
-                    // Manter URL criptografada
-                }
+            orderBy: { materia: 'asc' },
+            select: {
+                id: true,
+                titulo: true,
+                materia: true,
+                categoria: true,
+                descricao: true,
+                duracao: true,
+                criadoEm: true,
+                atualizadoEm: true,
+                url: true,
+                iv: true,
+                tag: true
             }
-            
-            return videoProcessado;
         });
         
-        res.json(videosProcessados);
+        console.log(`✅ ${videos.length} vídeos encontrados no banco`);
+        
+        res.json(videos);
+        
+        console.log('🎬 GET /api/videos - FIM (sucesso)');
         
     } catch (error) {
-        console.error('❌ ERRO AO CARREGAR VÍDEOS:', error);
+        console.error('💥 ERRO CRÍTICO EM /api/videos:', error.message);
+        console.error('Stack:', error.stack);
         
-        try {
-            const videos = await prisma.video.findMany({ 
-                orderBy: { materia: 'asc' },
-                select: {
-                    id: true,
-                    titulo: true,
-                    materia: true,
-                    categoria: true,
-                    descricao: true,
-                    duracao: true,
-                    criadoEm: true,
-                    atualizadoEm: true
-                }
-            });
-            
-            console.log(`✅ Fallback: ${videos.length} vídeos (sem URLs)`);
-            res.json(videos);
-            
-        } catch (fallbackError) {
-            console.error('💥 ERRO NO FALLBACK:', fallbackError);
-            
-            res.status(500).json({
-                success: false,
-                error: 'Erro ao carregar vídeos',
-                details: process.env.NODE_ENV === 'development' ? error.message : 'Erro interno'
-            });
-        }
+        res.json([]);
     }
 });
 
@@ -5597,6 +5461,7 @@ process.on('SIGTERM', async () => {
 });
 
 startServer();
+
 
 
 
