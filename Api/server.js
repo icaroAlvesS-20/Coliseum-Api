@@ -55,7 +55,9 @@ app.use(express.urlencoded({ extended: true }));
 app.use(encryptResponseMiddleware);
 
 // Para rotas específicas que lidam com dados sensíveis
+app.use('/api/videos', encryptResponseMiddleware);
 app.use('/api/videos', encryptRequestBodyMiddleware);
+app.use('/api/aulas', encryptResponseMiddleware);
 app.use('/api/aulas', encryptRequestBodyMiddleware);
 
 // ========== MIDDLEWARE DE LOG E CONEXÃO ========== //
@@ -2619,18 +2621,7 @@ app.get('/api/aulas/:id', async (req, res) => {
       });
     }
 
-    const aulaDescriptografada = {
-      ...aula,
-      videoUrl: aula.videoUrl ? encryptionService.decryptYouTubeUrl({
-        encrypted: aula.videoUrl,
-        iv: aula.videoIv,
-        tag: aula.videoTag
-      }) : null,
-      concluida: progresso?.concluida || false,
-      dataConclusao: progresso?.dataConclusao
-    };
-
-    res.json({
+      res.json({
       success: true,
       aula: aulaDescriptografada
     });
@@ -4521,13 +4512,6 @@ app.get('/api/videos', async (req, res) => {
     const videos = await prisma.video.findMany({ 
       orderBy: { materia: 'asc' } 
     });
-    
-    // Descriptografar URLs
-    const videosComUrlsDescriptografadas = videos.map(video => ({
-      ...video,
-      url: encryptionService.decryptYouTubeUrl(video.url)
-    }));
-    
     res.json(videosComUrlsDescriptografadas);
   } catch (error) {
     handleError(res, error, 'Erro ao carregar vídeos');
@@ -4548,9 +4532,6 @@ app.post('/api/videos', async (req, res) => {
         missingFields: missingFields
       });
     }
-
-    // Criptografar URL antes de salvar
-    const encryptedUrl = encryptionService.encryptYouTubeUrl(url.trim());
 
     const novoVideo = await prisma.video.create({
       data: {
@@ -5402,6 +5383,7 @@ process.on('SIGTERM', async () => {
 });
 
 startServer();
+
 
 
 
