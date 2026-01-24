@@ -38,10 +38,13 @@ if (!process.env.DATABASE_URL) {
 // ========== CORS SIMPLIFICADO E FUNCIONAL ========== //
 const allowedOrigins = [
     'https://coliseum-eaiewmqzt-icaroass-projects.vercel.app',
+    'https://coliseum-2tcr3z2a3-icaroass-projects.vercel.app', 
     'https://coliseum-app.vercel.app',
     'https://coliseum.vercel.app',
+    
     'https://coliseum-adm.vercel.app',
     'https://coliseum-admin.vercel.app',
+    
     'https://coliseum-api.onrender.com',
     'http://localhost:3000',
     'http://localhost:5173',
@@ -57,27 +60,39 @@ app.use((req, res, next) => {
     
     console.log(`🌐 ${req.method} ${req.path} - Origin: ${origin || 'None'}`);
     
-    // Permitir qualquer origem em desenvolvimento
-    if (process.env.NODE_ENV === 'development') {
-        res.header('Access-Control-Allow-Origin', origin || '*');
+    if (origin && origin.includes('.vercel.app')) {
+        res.header('Access-Control-Allow-Origin', origin);
+        console.log(`✅ Permitido: ${origin} (Vercel)`);
     }
-    // Em produção, verificar lista
+    else if (origin && origin.includes('.onrender.com')) {
+        res.header('Access-Control-Allow-Origin', origin);
+        console.log(`✅ Permitido: ${origin} (Render)`);
+    }
+    else if (origin && (origin.includes('localhost') || origin.includes('127.0.0.1'))) {
+        res.header('Access-Control-Allow-Origin', origin);
+        console.log(`✅ Permitido: ${origin} (Local)`);
+    }
     else if (origin && allowedOrigins.includes(origin)) {
         res.header('Access-Control-Allow-Origin', origin);
+        console.log(`✅ Permitido: ${origin} (Lista)`);
     }
-    // Se não tiver origem (apps móveis, curl, etc)
-    else if (!origin) {
-        res.header('Access-Control-Allow-Origin', '*');
+    else if (!origin || process.env.NODE_ENV === 'development') {
+        res.header('Access-Control-Allow-Origin', origin || '*');
+        console.log(`✅ Permitido: ${origin || '*'} (Dev/No Origin)`);
+    }
+    else {
+        console.log(`❌ Bloqueado: ${origin}`);
     }
     
     res.header('Access-Control-Allow-Credentials', 'true');
     res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH, HEAD');
-    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, usuarioId, x-user-id, X-API-Key');
-    res.header('Access-Control-Expose-Headers', 'Content-Length, X-Keep-Alive, X-Request-Id, usuarioId, x-user-id, X-Total-Cursos');
+    res.header('Access-Control-Allow-Headers', 
+        'Origin, X-Requested-With, Content-Type, Accept, Authorization, usuarioId, x-user-id, X-API-Key');
+    res.header('Access-Control-Expose-Headers', 
+        'Content-Length, X-Keep-Alive, X-Request-Id, usuarioId, x-user-id, X-Total-Cursos');
     
-    // Responder imediatamente para OPTIONS (preflight)
     if (req.method === 'OPTIONS') {
-        console.log(`✅ Preflight OPTIONS atendido para: ${origin}`);
+        console.log(`🛫 Preflight OPTIONS atendido para: ${origin}`);
         return res.status(200).end();
     }
     
@@ -5598,6 +5613,7 @@ process.on('SIGTERM', async () => {
 });
 
 startServer();
+
 
 
 
