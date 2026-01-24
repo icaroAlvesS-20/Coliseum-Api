@@ -1,5 +1,5 @@
 import { PrismaClient } from '@prisma/client';
-import { encryptionService } from './services/encryption.service.js';
+import encryptionService from '../services/encryption.service.js';
 
 const prisma = new PrismaClient();
 
