@@ -79,11 +79,74 @@ app.options('*', cors({
 }));
 
 app.use((req, res, next) => {
-  const allowedOrigins = [
+ const allowedOrigins = [
     'https://coliseum-eaiewmqzt-icaroass-projects.vercel.app',
+    'https://coliseum-app.vercel.app',
+    'https://coliseum.vercel.app',
+    
+    'https://coliseum-adm.vercel.app',
+    'https://coliseum-admin.vercel.app',
+    
     'https://coliseum-api.onrender.com',
-    'http://localhost:3000'
-  ];
+    'http://localhost:3000',
+    'http://localhost:5173',
+    'http://localhost:8080',
+    'http://localhost:5500',
+    'http://127.0.0.1:5500',
+    'http://127.0.0.1:3000',
+    'http://127.0.0.1:5173'
+];
+
+app.use((req, res, next) => {
+    const origin = req.headers.origin;
+    
+    if (allowedOrigins.includes(origin)) {
+        res.header('Access-Control-Allow-Origin', origin);
+    }
+    else if (process.env.NODE_ENV === 'development') {
+        res.header('Access-Control-Allow-Origin', '*');
+    }
+    
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH, HEAD');
+    res.header('Access-Control-Allow-Headers', 
+        'Origin, X-Requested-With, Content-Type, Accept, Authorization, usuarioId, x-user-id, X-API-Key');
+    res.header('Access-Control-Expose-Headers', 
+        'Content-Length, X-Keep-Alive, X-Request-Id, usuarioId, x-user-id, X-Total-Cursos');
+    
+    if (req.method === 'OPTIONS') {
+        return res.status(200).end();
+    }
+    
+    next();
+});
+
+app.use(cors({
+    origin: function (origin, callback) {
+        if (!origin) return callback(null, true);
+        
+        if (allowedOrigins.includes(origin)) {
+            return callback(null, true);
+        }
+        
+        if (process.env.NODE_ENV === 'development') {
+            return callback(null, true);
+        }
+        
+        return callback(new Error('Origem não permitida pelo CORS'), false);
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH', 'HEAD'],
+    allowedHeaders: [
+        'Content-Type', 'Authorization', 'X-Requested-With', 
+        'Accept', 'Origin', 'usuarioId', 'x-user-id', 'X-API-Key'
+    ],
+    exposedHeaders: [
+        'Content-Length', 'X-Keep-Alive', 'X-Request-Id',
+        'usuarioId', 'x-user-id', 'X-Total-Cursos'
+    ],
+    maxAge: 86400 
+}));
   
   const origin = req.headers.origin;
   if (allowedOrigins.includes(origin)) {
@@ -5541,6 +5604,7 @@ process.on('SIGTERM', async () => {
 });
 
 startServer();
+
 
 
 
