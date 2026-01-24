@@ -3186,6 +3186,28 @@ function validarDataExpiracao(dataString) {
     
     return data;
 }
+// Função auxiliar para obter admin padrão
+async function obterAdminPadrao() {
+    try {
+        // Buscar primeiro usuário ativo
+        const admin = await prisma.usuario.findFirst({
+            where: { status: 'ativo' },
+            orderBy: { id: 'asc' }
+        });
+        
+        if (!admin) {
+            throw new Error('Nenhum usuário cadastrado no sistema');
+        }
+        
+        console.log(`👑 Usando admin padrão: ${admin.id} - ${admin.nome}`);
+        return admin.id;
+        
+    } catch (error) {
+        console.error('❌ Erro ao obter admin padrão:', error);
+        return 1; 
+    }
+}
+
 // ========== SISTEMA DE AUTORIZAÇÃO ========== //
 
 // ✅ 1. VERIFICAR AUTORIZAÇÃO DE UMA AULA (FRONTEND)
@@ -4263,59 +4285,25 @@ app.get('/api/solicitacoes/pendentes', async (req, res) => {
 
 // ✅ 10. APROVAR SOLICITAÇÃO (ADMIN)
 app.put('/api/solicitacoes/:id/aprovar', async (req, res) => {
+    console.log(`✅ Aprovando solicitação ${req.params.id}`);
+    
     try {
         const solicitacaoId = validateId(req.params.id);
-        const { adminId, motivo, dataExpiracao } = req.body;
+        const { motivo, dataExpiracao } = req.body; // ❌ REMOVI adminId daqui
         
-        console.log(`✅ Aprovando solicitação ${solicitacaoId} pelo admin ${adminId}`);
-        
-        if (!solicitacaoId || !adminId) {
+        if (!solicitacaoId) {
             return res.status(400).json({
                 success: false,
-                error: 'Dados incompletos',
-                details: 'Forneça solicitacaoId e adminId'
+                error: 'ID da solicitação inválido'
             });
         }
         
-        const admin = await prisma.usuario.findUnique({
-            where: { id: parseInt(adminId) }
-        });
+        // 🎯 OBTER ADMIN AUTOMATICAMENTE
+        const adminId = await obterAdminPadrao();
         
-        if (!admin) {
-            console.log(`❌ Admin ${adminId} não existe!`);
-            
-            const primeiroAdmin = await prisma.usuario.findFirst({
-                where: { status: 'ativo' },
-                orderBy: { id: 'asc' }
-            });
-            
-            if (!primeiroAdmin) {
-                return res.status(404).json({
-                    success: false,
-                    error: 'Nenhum administrador disponível',
-                    details: 'Não há usuários cadastrados no sistema'
-                });
-            }
-            
-            console.log(`🔄 Usando admin alternativo: ${primeiroAdmin.id} - ${primeiroAdmin.nome}`);
-            
-            return await aprovarComAdmin(solicitacaoId, primeiroAdmin.id, motivo, dataExpiracao, res);
-        }
+        console.log(`🔑 Usando admin ID: ${adminId} para aprovar`);
         
-        return await aprovarComAdmin(solicitacaoId, parseInt(adminId), motivo, dataExpiracao, res);
-        
-    } catch (error) {
-        console.error('❌ Erro ao aprovar solicitação:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Erro ao aprovar solicitação',
-            details: error.message
-        });
-    }
-});
-
-async function aprovarComAdmin(solicitacaoId, adminId, motivo, dataExpiracao, res) {
-    try {
+        // Buscar solicitação
         const solicitacao = await prisma.solicitacaoAutorizacao.findUnique({
             where: { id: solicitacaoId }
         });
@@ -4331,10 +4319,11 @@ async function aprovarComAdmin(solicitacaoId, adminId, motivo, dataExpiracao, re
             return res.status(400).json({
                 success: false,
                 error: 'Solicitação já processada',
-                details: `Status atual: ${solicitacao.status}`
+                details: `Status: ${solicitacao.status}`
             });
         }
         
+        // Criar autorização
         const autorizacao = await prisma.autorizacaoAula.create({
             data: {
                 tipo: 'liberar_aula',
@@ -4344,38 +4333,53 @@ async function aprovarComAdmin(solicitacaoId, adminId, motivo, dataExpiracao, re
                 moduloId: solicitacao.moduloId,
                 motivo: motivo || `Aprovado via solicitação #${solicitacao.id}`,
                 dataExpiracao: dataExpiracao ? new Date(dataExpiracao) : null,
-                adminId: adminId,
+                adminId: adminId, // ← USANDO ADMIN OBTIDO AUTOMATICAMENTE
                 ativo: true,
                 criadoEm: new Date(),
                 atualizadoEm: new Date()
             }
         });
         
+        // Atualizar solicitação
         await prisma.solicitacaoAutorizacao.update({
             where: { id: solicitacaoId },
             data: {
                 status: 'aprovado',
                 motivoRejeicao: null,
                 processadoEm: new Date(),
-                adminId: adminId,
+                adminId: adminId, // ← MESMO ADMIN AQUI
                 autorizacaoId: autorizacao.id,
                 atualizadoEm: new Date()
             }
         });
         
-        console.log(`✅ Solicitação ${solicitacaoId} aprovada por admin ${adminId}`);
+        console.log(`✅ Solicitação ${solicitacaoId} aprovada! Autorização: ${autorizacao.id}`);
         
         res.json({
             success: true,
-            message: 'Solicitação aprovada e autorização criada!',
-            autorizacaoId: autorizacao.id
+            message: 'Solicitação aprovada com sucesso!',
+            autorizacaoId: autorizacao.id,
+            adminUsado: adminId
         });
         
     } catch (error) {
-        console.error('💥 Erro na aprovação:', error);
-        throw error;
+        console.error('💥 Erro ao aprovar solicitação:', error);
+        
+        if (error.code === 'P2003') {
+            return res.status(400).json({
+                success: false,
+                error: 'Erro de referência',
+                details: 'Admin padrão não configurado. Execute /api/setup/admin primeiro.'
+            });
+        }
+        
+        res.status(500).json({
+            success: false,
+            error: 'Erro ao aprovar solicitação',
+            details: error.message
+        });
     }
-}
+});
 
 // ✅ 11. REJEITAR SOLICITAÇÃO (ADMIN)
 app.put('/api/solicitacoes/:id/rejeitar', async (req, res) => {
@@ -5594,6 +5598,7 @@ process.on('SIGTERM', async () => {
 });
 
 startServer();
+
 
 
 
