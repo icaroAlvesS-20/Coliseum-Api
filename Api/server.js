@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import { PrismaClient } from '@prisma/client';
-import { encryptionService } from './services/encryption.service.js';
+import encryptionService from './services/encryption.service.js';
 import { encryptResponseMiddleware, encryptRequestBodyMiddleware } from './middlewares/encryption.middleware.js';
 
 const app = express();
@@ -5484,6 +5484,7 @@ process.on('SIGTERM', async () => {
 });
 
 startServer();
+
 
 
 
