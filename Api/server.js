@@ -4300,45 +4300,138 @@ app.get('/api/solicitacoes/pendentes', async (req, res) => {
 
 // ✅ 10. APROVAR SOLICITAÇÃO (ADMIN)
 app.put('/api/solicitacoes/:id/aprovar', async (req, res) => {
-    console.log(`✅ Aprovando solicitação ${req.params.id}`);
+    console.log(`\n🎯 ===== APROVAR SOLICITAÇÃO ${req.params.id} =====`);
+    console.log('📦 Body recebido:', req.body);
+    console.log('👤 Origin:', req.headers.origin);
     
     try {
-        const solicitacaoId = validateId(req.params.id);
-        const { motivo, dataExpiracao } = req.body; // ❌ REMOVI adminId daqui
-        
-        if (!solicitacaoId) {
+        const solicitacaoId = parseInt(req.params.id);
+        if (!solicitacaoId || isNaN(solicitacaoId) || solicitacaoId <= 0) {
+            console.log('❌ ID inválido:', req.params.id);
             return res.status(400).json({
                 success: false,
-                error: 'ID da solicitação inválido'
+                error: 'ID da solicitação inválido',
+                details: `"${req.params.id}" não é um ID válido`
             });
         }
         
-        // 🎯 OBTER ADMIN AUTOMATICAMENTE
-        const adminId = await obterAdminPadrao();
+        console.log(`✅ ID válido: ${solicitacaoId}`);
         
-        console.log(`🔑 Usando admin ID: ${adminId} para aprovar`);
+        const { motivo, dataExpiracao } = req.body || {};
         
-        // Buscar solicitação
+        if (!motivo || motivo.trim() === '') {
+            console.log('❌ Motivo vazio ou não fornecido');
+            return res.status(400).json({
+                success: false,
+                error: 'Motivo obrigatório',
+                details: 'Forneça um motivo para a aprovação'
+            });
+        }
+        
+        console.log(`✅ Motivo válido: "${motivo.substring(0, 50)}..."`);
+        
+        console.log(`🔍 Buscando solicitação ${solicitacaoId} no banco...`);
+        
         const solicitacao = await prisma.solicitacaoAutorizacao.findUnique({
-            where: { id: solicitacaoId }
+            where: { id: solicitacaoId },
+            include: {
+                usuario: { 
+                    select: { 
+                        id: true, 
+                        nome: true, 
+                        ra: true,
+                        status: true 
+                    } 
+                },
+                aula: { 
+                    select: { 
+                        id: true, 
+                        titulo: true,
+                        ativo: true 
+                    } 
+                },
+                curso: {
+                    select: {
+                        id: true,
+                        titulo: true
+                    }
+                }
+            }
         });
         
         if (!solicitacao) {
+            console.log(`❌ Solicitação ${solicitacaoId} NÃO ENCONTRADA no banco`);
             return res.status(404).json({
                 success: false,
-                error: 'Solicitação não encontrada'
+                error: 'Solicitação não encontrada',
+                details: `Nenhuma solicitação com ID ${solicitacaoId} existe`
             });
         }
         
+        console.log(`✅ Solicitação encontrada:`);
+        console.log(`   👤 Usuário: ${solicitacao.usuario.nome} (ID: ${solicitacao.usuario.id})`);
+        console.log(`   📚 Aula: "${solicitacao.aula?.titulo || 'N/A'}"`);
+        console.log(`   📊 Status atual: ${solicitacao.status}`);
+        
         if (solicitacao.status !== 'pendente') {
+            console.log(`❌ Solicitação já processada: ${solicitacao.status}`);
             return res.status(400).json({
                 success: false,
                 error: 'Solicitação já processada',
-                details: `Status: ${solicitacao.status}`
+                details: `Status atual: ${solicitacao.status}`,
+                statusAtual: solicitacao.status,
+                processadoEm: solicitacao.processadoEm
             });
         }
         
-        // Criar autorização
+        if (solicitacao.aula && !solicitacao.aula.ativo) {
+            console.log(`⚠️ Aula ${solicitacao.aulaId} está inativa`);
+            return res.status(400).json({
+                success: false,
+                error: 'Aula inativa',
+                details: 'A aula solicitada não está mais ativa no sistema'
+            });
+        }
+        
+        console.log('🔍 Buscando administrador...');
+        
+        let admin = await prisma.usuario.findFirst({
+            where: { 
+                OR: [
+                    { curso: { contains: 'admin', mode: 'insensitive' } },
+                    { nome: { contains: 'admin', mode: 'insensitive' } },
+                    { status: { contains: 'admin', mode: 'insensitive' } }
+                ],
+                status: 'ativo'
+            },
+            orderBy: { id: 'asc' }
+        });
+        
+        if (!admin) {
+            console.log('⚠️ Nenhum admin encontrado, criando automático...');
+            
+            admin = await prisma.usuario.create({
+                data: {
+                    nome: 'Administrador Sistema',
+                    ra: 'ADM001',
+                    senha: 'admin' + Date.now(),
+                    serie: 'Admin',
+                    curso: 'admin',
+                    status: 'ativo',
+                    pontuacao: 0,
+                    desafiosCompletados: 0,
+                    criadoEm: new Date(),
+                    atualizadoEm: new Date()
+                }
+            });
+            
+            console.log(`✅ Admin criado: ${admin.nome} (ID: ${admin.id})`);
+        } else {
+            console.log(`✅ Admin encontrado: ${admin.nome} (ID: ${admin.id})`);
+        }
+        
+        console.log('💾 Criando autorização...');
+        
         const autorizacao = await prisma.autorizacaoAula.create({
             data: {
                 tipo: 'liberar_aula',
@@ -4346,54 +4439,94 @@ app.put('/api/solicitacoes/:id/aprovar', async (req, res) => {
                 cursoId: solicitacao.cursoId,
                 aulaId: solicitacao.aulaId,
                 moduloId: solicitacao.moduloId,
-                motivo: motivo || `Aprovado via solicitação #${solicitacao.id}`,
+                motivo: motivo.trim(),
                 dataExpiracao: dataExpiracao ? new Date(dataExpiracao) : null,
-                adminId: adminId, // ← USANDO ADMIN OBTIDO AUTOMATICAMENTE
+                adminId: admin.id,
                 ativo: true,
                 criadoEm: new Date(),
                 atualizadoEm: new Date()
+            },
+            include: {
+                usuario: { select: { nome: true } },
+                aula: { select: { titulo: true } },
+                admin: { select: { nome: true } }
             }
         });
         
-        // Atualizar solicitação
+        console.log(`✅ Autorização criada: ID ${autorizacao.id}`);
+        
+        console.log('✏️ Atualizando solicitação...');
+        
         await prisma.solicitacaoAutorizacao.update({
             where: { id: solicitacaoId },
             data: {
                 status: 'aprovado',
                 motivoRejeicao: null,
                 processadoEm: new Date(),
-                adminId: adminId, // ← MESMO ADMIN AQUI
+                adminId: admin.id,
                 autorizacaoId: autorizacao.id,
                 atualizadoEm: new Date()
             }
         });
         
-        console.log(`✅ Solicitação ${solicitacaoId} aprovada! Autorização: ${autorizacao.id}`);
+        console.log(`✅ Solicitação ${solicitacaoId} APROVADA com sucesso!`);
+        console.log(`📋 Resumo:`);
+        console.log(`   👤 Aluno: ${autorizacao.usuario.nome}`);
+        console.log(`   🎓 Aula: ${autorizacao.aula.titulo}`);
+        console.log(`   👑 Aprovado por: ${autorizacao.admin.nome}`);
+        console.log(`   📝 Motivo: "${motivo.substring(0, 50)}..."`);
         
         res.json({
             success: true,
             message: 'Solicitação aprovada com sucesso!',
-            autorizacaoId: autorizacao.id,
-            adminUsado: adminId
+            data: {
+                autorizacaoId: autorizacao.id,
+                solicitacaoId: solicitacao.id,
+                aluno: autorizacao.usuario.nome,
+                aula: autorizacao.aula.titulo,
+                admin: autorizacao.admin.nome,
+                motivo: motivo.trim(),
+                dataAprovacao: new Date().toISOString()
+            }
         });
         
     } catch (error) {
-        console.error('💥 Erro ao aprovar solicitação:', error);
+        console.error('💥 ERRO CRÍTICO AO APROVAR SOLICITAÇÃO:');
+        console.error('Mensagem:', error.message);
+        console.error('Código:', error.code);
+        console.error('Stack:', error.stack);
         
-        if (error.code === 'P2003') {
-            return res.status(400).json({
-                success: false,
-                error: 'Erro de referência',
-                details: 'Admin padrão não configurado. Execute /api/setup/admin primeiro.'
-            });
+        let status = 500;
+        let errorMessage = 'Erro ao aprovar solicitação';
+        let details = error.message;
+        
+        if (error.code === 'P2002') {
+            status = 409;
+            errorMessage = 'Autorização já existe';
+            details = 'Já existe uma autorização idêntica para este aluno';
+        } else if (error.code === 'P2003') {
+            status = 400;
+            errorMessage = 'Erro de referência';
+            details = 'Verifique os IDs da solicitação';
+        } else if (error.code === 'P2025') {
+            status = 404;
+            errorMessage = 'Registro não encontrado';
+            details = 'A solicitação ou algum relacionamento não existe';
         }
         
-        res.status(500).json({
+        res.status(status).json({
             success: false,
-            error: 'Erro ao aprovar solicitação',
-            details: error.message
+            error: errorMessage,
+            details: details,
+            code: error.code
         });
     }
+});
+
+app.post('/api/solicitacoes/:id/aprovar', async (req, res) => {
+    console.log(`📨 POST /api/solicitacoes/${req.params.id}/aprovar`);
+    req.method = 'PUT';
+    return app._router.handle(req, res);
 });
 
 // ✅ 11. REJEITAR SOLICITAÇÃO (ADMIN)
@@ -5613,6 +5746,7 @@ process.on('SIGTERM', async () => {
 });
 
 startServer();
+
 
 
 
