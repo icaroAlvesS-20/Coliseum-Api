@@ -35,18 +35,75 @@ if (!process.env.DATABASE_URL) {
 }
 
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production' 
-    ? ['https://seu-frontend.com', 'https://outro-frontend.com'] 
-    : true,
+  origin: [
+    'https://coliseum-eaiewmqzt-icaroass-projects.vercel.app',
+    'https://coliseum-api.onrender.com',
+    'http://localhost:3000',
+    'http://localhost:5173', 
+    'http://localhost:8080'
+  ],
   credentials: true, 
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 
-                   'Accept', 'Origin', 'usuarioId', 'x-user-id'],
-  exposedHeaders: ['Content-Length', 'X-Keep-Alive', 'X-Request-Id', 
-                   'usuarioId', 'x-user-id', 'X-Total-Cursos']
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH', 'HEAD'],
+  allowedHeaders: [
+    'Content-Type', 
+    'Authorization', 
+    'X-Requested-With', 
+    'Accept', 
+    'Origin',
+    'usuarioId', 
+    'x-user-id',
+    'X-API-Key',
+    'Access-Control-Allow-Origin'
+  ],
+  exposedHeaders: [
+    'Content-Length', 
+    'X-Keep-Alive', 
+    'X-Request-Id', 
+    'usuarioId', 
+    'x-user-id',
+    'X-Total-Cursos',
+    'Access-Control-Allow-Origin'
+  ],
+  preflightContinue: false,
+  optionsSuccessStatus: 204
 }));
 
-app.options('*', cors());
+app.options('*', cors({
+  origin: [
+    'https://coliseum-eaiewmqzt-icaroass-projects.vercel.app',
+    'https://coliseum-api.onrender.com',
+    'http://localhost:3000'
+  ],
+  credentials: true,
+  optionsSuccessStatus: 204
+}));
+
+app.use((req, res, next) => {
+  const allowedOrigins = [
+    'https://coliseum-eaiewmqzt-icaroass-projects.vercel.app',
+    'https://coliseum-api.onrender.com',
+    'http://localhost:3000'
+  ];
+  
+  const origin = req.headers.origin;
+  if (allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+  }
+  
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH, HEAD');
+  res.header('Access-Control-Allow-Headers', 
+    'Origin, X-Requested-With, Content-Type, Accept, Authorization, usuarioId, x-user-id, X-API-Key');
+  res.header('Access-Control-Expose-Headers', 
+    'Content-Length, X-Keep-Alive, X-Request-Id, usuarioId, x-user-id, X-Total-Cursos');
+  
+  // Para requisições OPTIONS, responder imediatamente
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+  
+  next();
+});
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
@@ -5484,6 +5541,7 @@ process.on('SIGTERM', async () => {
 });
 
 startServer();
+
 
 
 
