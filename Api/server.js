@@ -4299,12 +4299,14 @@ app.get('/api/solicitacoes/pendentes', async (req, res) => {
 });
 
 // ✅ 10. APROVAR SOLICITAÇÃO (ADMIN)
+// ✅ ENDPOINT COMPLETO COM VALIDAÇÃO ROBUSTA
 app.put('/api/solicitacoes/:id/aprovar', async (req, res) => {
     console.log(`\n🎯 ===== APROVAR SOLICITAÇÃO ${req.params.id} =====`);
     console.log('📦 Body recebido:', req.body);
     console.log('👤 Origin:', req.headers.origin);
     
     try {
+        // 1. VALIDAR ID
         const solicitacaoId = parseInt(req.params.id);
         if (!solicitacaoId || isNaN(solicitacaoId) || solicitacaoId <= 0) {
             console.log('❌ ID inválido:', req.params.id);
@@ -4317,6 +4319,7 @@ app.put('/api/solicitacoes/:id/aprovar', async (req, res) => {
         
         console.log(`✅ ID válido: ${solicitacaoId}`);
         
+        // 2. VALIDAR BODY
         const { motivo, dataExpiracao } = req.body || {};
         
         if (!motivo || motivo.trim() === '') {
@@ -4330,6 +4333,7 @@ app.put('/api/solicitacoes/:id/aprovar', async (req, res) => {
         
         console.log(`✅ Motivo válido: "${motivo.substring(0, 50)}..."`);
         
+        // 3. BUSCAR SOLICITAÇÃO
         console.log(`🔍 Buscando solicitação ${solicitacaoId} no banco...`);
         
         const solicitacao = await prisma.solicitacaoAutorizacao.findUnique({
@@ -4373,6 +4377,7 @@ app.put('/api/solicitacoes/:id/aprovar', async (req, res) => {
         console.log(`   📚 Aula: "${solicitacao.aula?.titulo || 'N/A'}"`);
         console.log(`   📊 Status atual: ${solicitacao.status}`);
         
+        // 4. VERIFICAR STATUS
         if (solicitacao.status !== 'pendente') {
             console.log(`❌ Solicitação já processada: ${solicitacao.status}`);
             return res.status(400).json({
@@ -4384,6 +4389,7 @@ app.put('/api/solicitacoes/:id/aprovar', async (req, res) => {
             });
         }
         
+        // 5. VERIFICAR SE AULA ESTÁ ATIVA
         if (solicitacao.aula && !solicitacao.aula.ativo) {
             console.log(`⚠️ Aula ${solicitacao.aulaId} está inativa`);
             return res.status(400).json({
@@ -4393,6 +4399,7 @@ app.put('/api/solicitacoes/:id/aprovar', async (req, res) => {
             });
         }
         
+        // 6. BUSCAR ADMIN (ou criar se não existir)
         console.log('🔍 Buscando administrador...');
         
         let admin = await prisma.usuario.findFirst({
@@ -4407,6 +4414,7 @@ app.put('/api/solicitacoes/:id/aprovar', async (req, res) => {
             orderBy: { id: 'asc' }
         });
         
+        // Se não encontrar admin, criar um automático
         if (!admin) {
             console.log('⚠️ Nenhum admin encontrado, criando automático...');
             
@@ -5746,6 +5754,7 @@ process.on('SIGTERM', async () => {
 });
 
 startServer();
+
 
 
 
