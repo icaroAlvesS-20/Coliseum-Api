@@ -21,6 +21,7 @@ const prisma = new PrismaClient({
     timeout: 60000, 
   }
 });
+
 // ========== DIAGNÓSTICO INICIAL ========== //
 console.log('🔍 DIAGNÓSTICO DO AMBIENTE:');
 console.log('1. Node Version:', process.version);
@@ -34,59 +35,13 @@ if (!process.env.DATABASE_URL) {
     process.exit(1);
 }
 
-app.use(cors({
-  origin: [
-    'https://coliseum-eaiewmqzt-icaroass-projects.vercel.app',
-    'https://coliseum-api.onrender.com',
-    'http://localhost:3000',
-    'http://localhost:5173', 
-    'http://localhost:8080'
-  ],
-  credentials: true, 
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH', 'HEAD'],
-  allowedHeaders: [
-    'Content-Type', 
-    'Authorization', 
-    'X-Requested-With', 
-    'Accept', 
-    'Origin',
-    'usuarioId', 
-    'x-user-id',
-    'X-API-Key',
-    'Access-Control-Allow-Origin'
-  ],
-  exposedHeaders: [
-    'Content-Length', 
-    'X-Keep-Alive', 
-    'X-Request-Id', 
-    'usuarioId', 
-    'x-user-id',
-    'X-Total-Cursos',
-    'Access-Control-Allow-Origin'
-  ],
-  preflightContinue: false,
-  optionsSuccessStatus: 204
-}));
-
-app.options('*', cors({
-  origin: [
-    'https://coliseum-eaiewmqzt-icaroass-projects.vercel.app',
-    'https://coliseum-api.onrender.com',
-    'http://localhost:3000'
-  ],
-  credentials: true,
-  optionsSuccessStatus: 204
-}));
-
-app.use((req, res, next) => {
- const allowedOrigins = [
+// ========== CORS SIMPLIFICADO E FUNCIONAL ========== //
+const allowedOrigins = [
     'https://coliseum-eaiewmqzt-icaroass-projects.vercel.app',
     'https://coliseum-app.vercel.app',
     'https://coliseum.vercel.app',
-    
     'https://coliseum-adm.vercel.app',
     'https://coliseum-admin.vercel.app',
-    
     'https://coliseum-api.onrender.com',
     'http://localhost:3000',
     'http://localhost:5173',
@@ -100,81 +55,39 @@ app.use((req, res, next) => {
 app.use((req, res, next) => {
     const origin = req.headers.origin;
     
-    if (allowedOrigins.includes(origin)) {
+    console.log(`🌐 ${req.method} ${req.path} - Origin: ${origin || 'None'}`);
+    
+    // Permitir qualquer origem em desenvolvimento
+    if (process.env.NODE_ENV === 'development') {
+        res.header('Access-Control-Allow-Origin', origin || '*');
+    }
+    // Em produção, verificar lista
+    else if (origin && allowedOrigins.includes(origin)) {
         res.header('Access-Control-Allow-Origin', origin);
     }
-    else if (process.env.NODE_ENV === 'development') {
+    // Se não tiver origem (apps móveis, curl, etc)
+    else if (!origin) {
         res.header('Access-Control-Allow-Origin', '*');
     }
     
     res.header('Access-Control-Allow-Credentials', 'true');
     res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH, HEAD');
-    res.header('Access-Control-Allow-Headers', 
-        'Origin, X-Requested-With, Content-Type, Accept, Authorization, usuarioId, x-user-id, X-API-Key');
-    res.header('Access-Control-Expose-Headers', 
-        'Content-Length, X-Keep-Alive, X-Request-Id, usuarioId, x-user-id, X-Total-Cursos');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, usuarioId, x-user-id, X-API-Key');
+    res.header('Access-Control-Expose-Headers', 'Content-Length, X-Keep-Alive, X-Request-Id, usuarioId, x-user-id, X-Total-Cursos');
     
+    // Responder imediatamente para OPTIONS (preflight)
     if (req.method === 'OPTIONS') {
+        console.log(`✅ Preflight OPTIONS atendido para: ${origin}`);
         return res.status(200).end();
     }
     
     next();
 });
 
-app.use(cors({
-    origin: function (origin, callback) {
-        if (!origin) return callback(null, true);
-        
-        if (allowedOrigins.includes(origin)) {
-            return callback(null, true);
-        }
-        
-        if (process.env.NODE_ENV === 'development') {
-            return callback(null, true);
-        }
-        
-        return callback(new Error('Origem não permitida pelo CORS'), false);
-    },
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH', 'HEAD'],
-    allowedHeaders: [
-        'Content-Type', 'Authorization', 'X-Requested-With', 
-        'Accept', 'Origin', 'usuarioId', 'x-user-id', 'X-API-Key'
-    ],
-    exposedHeaders: [
-        'Content-Length', 'X-Keep-Alive', 'X-Request-Id',
-        'usuarioId', 'x-user-id', 'X-Total-Cursos'
-    ],
-    maxAge: 86400 
-}));
-  
-  const origin = req.headers.origin;
-  if (allowedOrigins.includes(origin)) {
-    res.header('Access-Control-Allow-Origin', origin);
-  }
-  
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH, HEAD');
-  res.header('Access-Control-Allow-Headers', 
-    'Origin, X-Requested-With, Content-Type, Accept, Authorization, usuarioId, x-user-id, X-API-Key');
-  res.header('Access-Control-Expose-Headers', 
-    'Content-Length, X-Keep-Alive, X-Request-Id, usuarioId, x-user-id, X-Total-Cursos');
-  
-  // Para requisições OPTIONS, responder imediatamente
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
-  
-  next();
-});
-
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 // ========== MIDDLEWARE DE CRIPTOGRAFIA ========== //
-app.use(encryptResponseMiddleware);
-
-// Para rotas específicas que lidam com dados sensíveis
 app.use('/api/videos', encryptResponseMiddleware);
 app.use('/api/videos', encryptRequestBodyMiddleware);
 app.use('/api/aulas', encryptResponseMiddleware);
@@ -185,8 +98,7 @@ app.use(async (req, res, next) => {
   console.log(`\n=== NOVA REQUISIÇÃO ===`);
   console.log(`[${new Date().toLocaleTimeString()}] ${req.method} ${req.path}`);
   console.log('📍 Origin:', req.headers.origin || 'Sem origin');
-  console.log('🔑 Headers:', req.headers);
-  
+    
   // Adicionar headers CORS em todas as respostas
   res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
   res.header('Access-Control-Allow-Credentials', 'true');
@@ -5604,6 +5516,7 @@ process.on('SIGTERM', async () => {
 });
 
 startServer();
+
 
 
 
