@@ -452,7 +452,7 @@ app.get('/api/usuarios', async (req, res) => {
   }
 });
 
-// ✅ GET USUÁRIO POR ID
+// ✅ GET USUÁRIO POR ID (COM SUPORTE A ADMIN)
 app.get('/api/usuarios/:id', async (req, res) => {
   try {
     const userId = validateId(req.params.id);
@@ -460,23 +460,39 @@ app.get('/api/usuarios/:id', async (req, res) => {
       return res.status(400).json({ error: 'ID do usuário inválido' });
     }
 
-    console.log(`👤 Buscando usuário ID: ${userId}`);
+    // Verificar se é uma requisição de admin (opcional)
+    const isAdmin = req.query.admin === 'true' || req.headers['x-admin'] === 'true';
+    
+    console.log(`👤 Buscando usuário ID: ${userId} ${isAdmin ? '(modo admin)' : ''}`);
+
+    const select = isAdmin ? {
+      id: true,
+      nome: true,
+      ra: true,
+      senha: true,  // ✅ SÓ INCLUI SE FOR ADMIN
+      serie: true,
+      curso: true,
+      pontuacao: true,
+      desafiosCompletados: true,
+      status: true,
+      criadoEm: true,
+      atualizadoEm: true
+    } : {
+      id: true,
+      nome: true,
+      ra: true,
+      serie: true,
+      curso: true,
+      pontuacao: true,
+      desafiosCompletados: true,
+      status: true,
+      criadoEm: true,
+      atualizadoEm: true
+    };
 
     const usuario = await prisma.usuario.findUnique({
       where: { id: userId },
-      select: {
-        id: true,
-        nome: true,
-        ra: true,
-        senha: true,
-        serie: true,
-        curso: true,
-        pontuacao: true,
-        desafiosCompletados: true,
-        status: true,
-        criadoEm: true,
-        atualizadoEm: true
-      }
+      select: select
     });
 
     if (!usuario) {
@@ -487,11 +503,15 @@ app.get('/api/usuarios/:id', async (req, res) => {
     }
 
     console.log(`✅ Usuário encontrado: ${usuario.nome}`);
+    if (isAdmin) {
+      console.log(`🔑 Senha: ${usuario.senha ? '********' : 'N/A'}`);
+    }
     
     res.json({
       success: true,
       usuario: usuario
     });
+    
   } catch (error) {
     handleError(res, error, 'Erro ao buscar usuário');
   }
@@ -5755,6 +5775,7 @@ process.on('SIGTERM', async () => {
 });
 
 startServer();
+
 
 
 
