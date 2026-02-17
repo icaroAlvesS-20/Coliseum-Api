@@ -468,6 +468,7 @@ app.get('/api/usuarios/:id', async (req, res) => {
         id: true,
         nome: true,
         ra: true,
+        senha: true,
         serie: true,
         curso: true,
         pontuacao: true,
@@ -5754,6 +5755,7 @@ process.on('SIGTERM', async () => {
 });
 
 startServer();
+
 
 
 
