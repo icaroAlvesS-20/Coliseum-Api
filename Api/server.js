@@ -830,8 +830,8 @@ app.get('/api/usuarios/admins', async (req, res) => {
         const admins = await prisma.usuario.findMany({
             where: {
                 OR: [
-                    { curso: 'admin' },
-                    { curso: 'administrador' },
+                    { curso: { has: 'admin' } },
+                    { curso: { has: 'administrador' } },
                     { status: 'admin' }
                 ]
             },
@@ -5794,6 +5794,7 @@ process.on('SIGTERM', async () => {
 });
 
 startServer();
+
 
 
 
