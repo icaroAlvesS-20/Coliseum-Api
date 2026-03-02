@@ -570,7 +570,7 @@ app.post('/api/usuarios', async (req, res) => {
                 ra: ra.toString().trim(),
                 serie: serie.trim(),
                 senha: senha.trim(),
-                curso: curso.trim(),
+                curso: cursosArray, 
                 status: status,
                 pontuacao: 0,
                 desafiosCompletados: 0,
@@ -746,8 +746,11 @@ app.put('/api/usuarios/:id', async (req, res) => {
     if (nome !== undefined) updateData.nome = nome.trim();
     if (ra !== undefined) updateData.ra = ra.toString().trim();
     if (serie !== undefined) updateData.serie = serie.trim();
-    if (curso !== undefined) updateData.curso = curso.trim();
-    if (pontuacao !== undefined) updateData.pontuacao = parseInt(pontuacao);
+    if (curso !== undefined) { if (typeof curso === 'string') { updateData.curso = [curso.trim()];
+        }  else if (Array.isArray(curso)) {
+            updateData.curso = curso.map(c => c.trim());
+        }
+    }    if (pontuacao !== undefined) updateData.pontuacao = parseInt(pontuacao);
     if (desafiosCompletados !== undefined) updateData.desafiosCompletados = parseInt(desafiosCompletados);
     if (status !== undefined) updateData.status = status;
 
@@ -5775,6 +5778,7 @@ process.on('SIGTERM', async () => {
 });
 
 startServer();
+
 
 
 
