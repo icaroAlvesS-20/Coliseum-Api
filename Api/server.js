@@ -514,7 +514,6 @@ app.get('/api/usuarios/:id', async (req, res) => {
 });
 
 // ✅ POST CRIAR USUÁRIO
-
 app.post('/api/usuarios', async (req, res) => {
     try {
         console.log('📝 Recebendo requisição POST /api/usuarios');
@@ -534,7 +533,7 @@ app.post('/api/usuarios', async (req, res) => {
         if (!ra || ra.toString().trim() === '') missingFields.push('ra');
         if (!serie || serie.trim() === '') missingFields.push('serie');
         if (!senha || senha.trim() === '') missingFields.push('senha');
-        if (!curso) missingFields.push('curso'); 
+        if (!curso) missingFields.push('curso');
 
         if (missingFields.length > 0) {
             return res.status(400).json({
@@ -564,10 +563,15 @@ app.post('/api/usuarios', async (req, res) => {
         let cursosArray = [];
         if (curso) {
             if (typeof curso === 'string') {
-                cursosArray = [curso.trim()];
+                cursosArray = curso.trim() ? [curso.trim()] : [];
             } else if (Array.isArray(curso)) {
-                cursosArray = curso.map(c => c.trim());
+                cursosArray = curso.map(c => c?.trim()).filter(c => c && c.length > 0);
             }
+        }
+
+        if (cursosArray.length === 0) {
+            cursosArray = ['sem_curso']; 
+            console.log('⚠️ Usuário sem curso definido, usando padrão: sem_curso');
         }
 
         const novoUsuario = await prisma.usuario.create({
@@ -576,7 +580,7 @@ app.post('/api/usuarios', async (req, res) => {
                 ra: ra.toString().trim(),
                 serie: serie.trim(),
                 senha: senha.trim(),
-                curso: cursosArray,
+                curso: cursosArray, 
                 status: status,
                 pontuacao: 0,
                 desafiosCompletados: 0,
@@ -595,6 +599,7 @@ app.post('/api/usuarios', async (req, res) => {
         });
 
     } catch (error) {
+        console.error('❌ Erro detalhado:', error);
         handleError(res, error, 'Erro ao criar usuário');
     }
 });
@@ -2197,7 +2202,6 @@ app.get('/api/cursos/:id/modulos', async (req, res) => {
   }
 });
 
-// ✅ POST CRIAR CURSO (NOVO)
 // ✅ POST CRIAR CURSO (NOVO - CORRIGIDO)
 app.post('/api/cursos', async (req, res) => {
   try {
@@ -5794,6 +5798,7 @@ process.on('SIGTERM', async () => {
 });
 
 startServer();
+
 
 
 
