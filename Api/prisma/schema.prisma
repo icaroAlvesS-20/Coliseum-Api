@@ -13,7 +13,7 @@ model Usuario {
   nome                String
   senha               String
   serie               String
-  curso               String[]
+  curso               String
   status              String             @default("ativo")
   pontuacao           Int                @default(0)
   desafiosCompletados Int                @default(0)
@@ -419,6 +419,7 @@ model LogAutorizacao {
   
   @@map("log_autorizacao")
 }
+
 
 
 
