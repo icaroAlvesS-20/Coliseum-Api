@@ -321,12 +321,20 @@ async function atualizarProgressoModulo(usuarioId, moduloId) {
 
 function verificarPermissaoCurso(cursosUsuario, materiaCurso) {
     console.log(`🔐 Backend: Usuário tem cursos = [${cursosUsuario}], Matéria = ${materiaCurso}`);
-
+    
     if (!cursosUsuario || cursosUsuario.length === 0) {
         console.log(`ℹ️ Usuário sem cursos definidos.`);
         return false;
     }
-
+    
+    if (cursosUsuario.some(curso => 
+        curso.toLowerCase().trim() === 'admin' || 
+        curso.toLowerCase().trim() === 'administrador'
+    )) {
+        console.log('👑 Usuário é admin, permitindo acesso total');
+        return true;
+    }
+    
     const mapeamentoCursos = {
         'programacao': ['python', 'javascript', 'web', 'html', 'css', 'programacao', 'desenvolvimento'],
         'robotica': ['arduino', 'robotica', 'eletronica', 'automatizacao'],
@@ -336,30 +344,26 @@ function verificarPermissaoCurso(cursosUsuario, materiaCurso) {
         'informatica': ['word', 'excel', 'powerpoint', 'windows', 'pacote office', 'informatica basica'],
         'outros': []
     };
-
-    if (cursosUsuario.some(curso => curso.toLowerCase().trim() === 'admin' || curso.toLowerCase().trim() === 'administrador')) {
-        console.log('👑 Usuário é admin, permitindo acesso total');
-        return true;
-    }
-
+    
     const materiaCursoLower = materiaCurso.toLowerCase().trim();
+    
     let categoriaDaMateria = 'outros';
-
     for (const [categoria, materias] of Object.entries(mapeamentoCursos)) {
         if (materias.some(materia => materiaCursoLower.includes(materia) || materia.includes(materiaCursoLower))) {
             categoriaDaMateria = categoria;
             break;
         }
     }
+    
     console.log(`📋 Matéria "${materiaCurso}" pertence à categoria: "${categoriaDaMateria}"`);
-
+    
     const temAcesso = cursosUsuario.some(cursoUsuario => {
         const cursoUsuarioLower = cursoUsuario.toLowerCase().trim();
         return cursoUsuarioLower === categoriaDaMateria;
     });
-
-    console.log(`🔓 Resultado: ${temAcesso ? 'PERMITIDO' : 'BLOQUEADO'} (Usuário precisa ser da categoria "${categoriaDaMateria}")`);
-
+    
+    console.log(`🔓 Resultado: ${temAcesso ? 'PERMITIDO' : 'BLOQUEADO'}`);
+    
     return temAcesso;
 }
 
@@ -510,6 +514,7 @@ app.get('/api/usuarios/:id', async (req, res) => {
 });
 
 // ✅ POST CRIAR USUÁRIO
+
 app.post('/api/usuarios', async (req, res) => {
     try {
         console.log('📝 Recebendo requisição POST /api/usuarios');
@@ -529,7 +534,7 @@ app.post('/api/usuarios', async (req, res) => {
         if (!ra || ra.toString().trim() === '') missingFields.push('ra');
         if (!serie || serie.trim() === '') missingFields.push('serie');
         if (!senha || senha.trim() === '') missingFields.push('senha');
-        if (!curso || curso.trim() === '') missingFields.push('curso');
+        if (!curso) missingFields.push('curso'); 
 
         if (missingFields.length > 0) {
             return res.status(400).json({
@@ -556,13 +561,22 @@ app.post('/api/usuarios', async (req, res) => {
             });
         }
 
+        let cursosArray = [];
+        if (curso) {
+            if (typeof curso === 'string') {
+                cursosArray = [curso.trim()];
+            } else if (Array.isArray(curso)) {
+                cursosArray = curso.map(c => c.trim());
+            }
+        }
+
         const novoUsuario = await prisma.usuario.create({
             data: {
                 nome: nome.trim(),
                 ra: ra.toString().trim(),
                 serie: serie.trim(),
                 senha: senha.trim(),
-                curso: cursosArray, 
+                curso: cursosArray,
                 status: status,
                 pontuacao: 0,
                 desafiosCompletados: 0,
@@ -694,6 +708,7 @@ app.get('/api/ranking', async (req, res) => {
 });
 
 // ✅ PUT ATUALIZAR USUÁRIO
+
 app.put('/api/usuarios/:id', async (req, res) => {
   try {
     const userId = validateId(req.params.id);
@@ -738,11 +753,20 @@ app.put('/api/usuarios/:id', async (req, res) => {
     if (nome !== undefined) updateData.nome = nome.trim();
     if (ra !== undefined) updateData.ra = ra.toString().trim();
     if (serie !== undefined) updateData.serie = serie.trim();
-    if (curso !== undefined) { if (typeof curso === 'string') { updateData.curso = [curso.trim()];
-        }  else if (Array.isArray(curso)) {
+    
+    if (curso !== undefined) {
+        if (typeof curso === 'string') {
+            updateData.curso = [curso.trim()];
+        }
+        else if (Array.isArray(curso)) {
             updateData.curso = curso.map(c => c.trim());
         }
-    }    if (pontuacao !== undefined) updateData.pontuacao = parseInt(pontuacao);
+        else {
+            updateData.curso = usuarioExistente.curso;
+        }
+    }
+    
+    if (pontuacao !== undefined) updateData.pontuacao = parseInt(pontuacao);
     if (desafiosCompletados !== undefined) updateData.desafiosCompletados = parseInt(desafiosCompletados);
     if (status !== undefined) updateData.status = status;
 
@@ -5770,6 +5794,7 @@ process.on('SIGTERM', async () => {
 });
 
 startServer();
+
 
 
 
