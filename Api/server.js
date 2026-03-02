@@ -319,14 +319,14 @@ async function atualizarProgressoModulo(usuarioId, moduloId) {
   }
 }
 
-function verificarPermissaoCurso(cursoUsuario, materiaCurso) {
-    console.log(`🔐 Backend: Usuário=${cursoUsuario}, Matéria=${materiaCurso}`);
-    
-    if (!cursoUsuario || !materiaCurso) {
-        console.log(`ℹ️ Sem restrições: cursoUsuario=${cursoUsuario}, materiaCurso=${materiaCurso}`);
-        return true; 
+function verificarPermissaoCurso(cursosUsuario, materiaCurso) {
+    console.log(`🔐 Backend: Usuário tem cursos = [${cursosUsuario}], Matéria = ${materiaCurso}`);
+
+    if (!cursosUsuario || cursosUsuario.length === 0) {
+        console.log(`ℹ️ Usuário sem cursos definidos.`);
+        return false;
     }
-    
+
     const mapeamentoCursos = {
         'programacao': ['python', 'javascript', 'web', 'html', 'css', 'programacao', 'desenvolvimento'],
         'robotica': ['arduino', 'robotica', 'eletronica', 'automatizacao'],
@@ -334,40 +334,32 @@ function verificarPermissaoCurso(cursoUsuario, materiaCurso) {
         'reforco': ['algebra', 'geometria', 'matematica', 'quimica', 'fisica', 'biologia', 'ciencias'],
         'preparatorio': ['historia', 'geografia', 'gramatica', 'redacao', 'literatura', 'portugues'],
         'informatica': ['word', 'excel', 'powerpoint', 'windows', 'pacote office', 'informatica basica'],
-        'outros': [] 
+        'outros': []
     };
-    
-    const cursoUsuarioLower = cursoUsuario.toLowerCase().trim();
-    const materiaCursoLower = materiaCurso.toLowerCase().trim();
-    
-    console.log(`📊 Valores normalizados: curso=${cursoUsuarioLower}, matéria=${materiaCursoLower}`);
-    
-    if (cursoUsuarioLower === 'admin' || cursoUsuarioLower === 'administrador') {
+
+    if (cursosUsuario.some(curso => curso.toLowerCase().trim() === 'admin' || curso.toLowerCase().trim() === 'administrador')) {
         console.log('👑 Usuário é admin, permitindo acesso total');
         return true;
     }
-    
-    if (materiaCursoLower === 'web' && cursoUsuarioLower === 'programacao') {
-        console.log('✅ Acesso permitido: programação → web');
-        return true;
-    }
-    
-    let categoriaEncontrada = 'outros';
-    
-    // Procurar a matéria no mapeamento
+
+    const materiaCursoLower = materiaCurso.toLowerCase().trim();
+    let categoriaDaMateria = 'outros';
+
     for (const [categoria, materias] of Object.entries(mapeamentoCursos)) {
         if (materias.some(materia => materiaCursoLower.includes(materia) || materia.includes(materiaCursoLower))) {
-            categoriaEncontrada = categoria;
+            categoriaDaMateria = categoria;
             break;
         }
     }
-    
-    console.log(`📋 Matéria "${materiaCurso}" pertence à categoria: "${categoriaEncontrada}"`);
-  
-    const temAcesso = cursoUsuarioLower === categoriaEncontrada || categoriaEncontrada === 'outros';
-    
-    console.log(`🔓 Resultado: ${cursoUsuario} → ${materiaCurso}: ${temAcesso ? 'PERMITIDO' : 'BLOQUEADO'}`);
-    
+    console.log(`📋 Matéria "${materiaCurso}" pertence à categoria: "${categoriaDaMateria}"`);
+
+    const temAcesso = cursosUsuario.some(cursoUsuario => {
+        const cursoUsuarioLower = cursoUsuario.toLowerCase().trim();
+        return cursoUsuarioLower === categoriaDaMateria;
+    });
+
+    console.log(`🔓 Resultado: ${temAcesso ? 'PERMITIDO' : 'BLOQUEADO'} (Usuário precisa ser da categoria "${categoriaDaMateria}")`);
+
     return temAcesso;
 }
 
@@ -5778,6 +5770,7 @@ process.on('SIGTERM', async () => {
 });
 
 startServer();
+
 
 
 
