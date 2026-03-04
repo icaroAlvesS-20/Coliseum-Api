@@ -4343,7 +4343,6 @@ app.get('/api/solicitacoes/pendentes', async (req, res) => {
 });
 
 // ✅ 10. APROVAR SOLICITAÇÃO (ADMIN)
-// ✅ ENDPOINT COMPLETO COM VALIDAÇÃO ROBUSTA
 app.put('/api/solicitacoes/:id/aprovar', async (req, res) => {
     console.log(`\n🎯 ===== APROVAR SOLICITAÇÃO ${req.params.id} =====`);
     console.log('📦 Body recebido:', req.body);
@@ -4363,19 +4362,13 @@ app.put('/api/solicitacoes/:id/aprovar', async (req, res) => {
         
         console.log(`✅ ID válido: ${solicitacaoId}`);
         
-        // 2. VALIDAR BODY
         const { motivo, dataExpiracao } = req.body || {};
         
-        if (!motivo || motivo.trim() === '') {
-            console.log('❌ Motivo vazio ou não fornecido');
-            return res.status(400).json({
-                success: false,
-                error: 'Motivo obrigatório',
-                details: 'Forneça um motivo para a aprovação'
-            });
-        }
+        const motivoFinal = motivo && motivo.trim() !== '' 
+            ? motivo.trim() 
+            : `Aprovação automática - Solicitação #${solicitacaoId}`;
         
-        console.log(`✅ Motivo válido: "${motivo.substring(0, 50)}..."`);
+        console.log(`✅ Motivo: "${motivoFinal.substring(0, 50)}..."`);
         
         // 3. BUSCAR SOLICITAÇÃO
         console.log(`🔍 Buscando solicitação ${solicitacaoId} no banco...`);
@@ -4458,26 +4451,25 @@ app.put('/api/solicitacoes/:id/aprovar', async (req, res) => {
             orderBy: { id: 'asc' }
         });
         
-        // Se não encontrar admin, criar um automático
+        // Se não encontrar admin, usar o admin padrão
         if (!admin) {
-            console.log('⚠️ Nenhum admin encontrado, criando automático...');
+            console.log('⚠️ Nenhum admin encontrado, buscando primeiro usuário ativo...');
             
-            admin = await prisma.usuario.create({
-                data: {
-                    nome: 'Administrador Sistema',
-                    ra: 'ADM001',
-                    senha: 'admin' + Date.now(),
-                    serie: 'Admin',
-                    curso: 'admin',
-                    status: 'ativo',
-                    pontuacao: 0,
-                    desafiosCompletados: 0,
-                    criadoEm: new Date(),
-                    atualizadoEm: new Date()
-                }
+            admin = await prisma.usuario.findFirst({
+                where: { status: 'ativo' },
+                orderBy: { id: 'asc' }
             });
             
-            console.log(`✅ Admin criado: ${admin.nome} (ID: ${admin.id})`);
+            if (!admin) {
+                console.log('❌ Nenhum usuário ativo encontrado!');
+                return res.status(500).json({
+                    success: false,
+                    error: 'Nenhum administrador disponível',
+                    details: 'Crie um usuário admin antes de aprovar solicitações'
+                });
+            }
+            
+            console.log(`✅ Usando primeiro usuário ativo: ${admin.nome} (ID: ${admin.id})`);
         } else {
             console.log(`✅ Admin encontrado: ${admin.nome} (ID: ${admin.id})`);
         }
@@ -4491,7 +4483,7 @@ app.put('/api/solicitacoes/:id/aprovar', async (req, res) => {
                 cursoId: solicitacao.cursoId,
                 aulaId: solicitacao.aulaId,
                 moduloId: solicitacao.moduloId,
-                motivo: motivo.trim(),
+                motivo: motivoFinal,
                 dataExpiracao: dataExpiracao ? new Date(dataExpiracao) : null,
                 adminId: admin.id,
                 ativo: true,
@@ -4526,7 +4518,7 @@ app.put('/api/solicitacoes/:id/aprovar', async (req, res) => {
         console.log(`   👤 Aluno: ${autorizacao.usuario.nome}`);
         console.log(`   🎓 Aula: ${autorizacao.aula.titulo}`);
         console.log(`   👑 Aprovado por: ${autorizacao.admin.nome}`);
-        console.log(`   📝 Motivo: "${motivo.substring(0, 50)}..."`);
+        console.log(`   📝 Motivo: "${motivoFinal.substring(0, 50)}..."`);
         
         res.json({
             success: true,
@@ -4537,7 +4529,7 @@ app.put('/api/solicitacoes/:id/aprovar', async (req, res) => {
                 aluno: autorizacao.usuario.nome,
                 aula: autorizacao.aula.titulo,
                 admin: autorizacao.admin.nome,
-                motivo: motivo.trim(),
+                motivo: motivoFinal,
                 dataAprovacao: new Date().toISOString()
             }
         });
@@ -5798,6 +5790,7 @@ process.on('SIGTERM', async () => {
 });
 
 startServer();
+
 
 
 
