@@ -4342,11 +4342,12 @@ app.get('/api/solicitacoes/pendentes', async (req, res) => {
     }
 });
 
-// ✅ 10. APROVAR SOLICITAÇÃO (ADMIN)
+// ✅ ROTA PUT PARA APROVAR SOLICITAÇÃO - VERSÃO CORRIGIDA
 app.put('/api/solicitacoes/:id/aprovar', async (req, res) => {
     console.log(`\n🎯 ===== APROVAR SOLICITAÇÃO ${req.params.id} =====`);
     console.log('📦 Body recebido:', req.body);
     console.log('👤 Origin:', req.headers.origin);
+    console.log('🔑 Headers:', req.headers);
     
     try {
         // 1. VALIDAR ID
@@ -4362,8 +4363,8 @@ app.put('/api/solicitacoes/:id/aprovar', async (req, res) => {
         
         console.log(`✅ ID válido: ${solicitacaoId}`);
         
+        // 2. PROCESSAR MOTIVO (pode vir do body ou ser automático)
         const { motivo, dataExpiracao } = req.body || {};
-        
         const motivoFinal = motivo && motivo.trim() !== '' 
             ? motivo.trim() 
             : `Aprovação automática - Solicitação #${solicitacaoId}`;
@@ -4436,22 +4437,21 @@ app.put('/api/solicitacoes/:id/aprovar', async (req, res) => {
             });
         }
         
-        // 6. BUSCAR ADMIN (ou criar se não existir)
+        // 6. BUSCAR ADMIN (ou usar primeiro usuário ativo)
         console.log('🔍 Buscando administrador...');
         
         let admin = await prisma.usuario.findFirst({
             where: { 
                 OR: [
-                    { curso: { contains: 'admin', mode: 'insensitive' } },
-                    { nome: { contains: 'admin', mode: 'insensitive' } },
-                    { status: { contains: 'admin', mode: 'insensitive' } }
+                    { curso: { has: 'admin' } },
+                    { nome: { contains: 'admin', mode: 'insensitive' } }
                 ],
                 status: 'ativo'
             },
             orderBy: { id: 'asc' }
         });
         
-        // Se não encontrar admin, usar o admin padrão
+        // Se não encontrar admin, usar primeiro usuário ativo
         if (!admin) {
             console.log('⚠️ Nenhum admin encontrado, buscando primeiro usuário ativo...');
             
@@ -4465,7 +4465,7 @@ app.put('/api/solicitacoes/:id/aprovar', async (req, res) => {
                 return res.status(500).json({
                     success: false,
                     error: 'Nenhum administrador disponível',
-                    details: 'Crie um usuário admin antes de aprovar solicitações'
+                    details: 'Crie um usuário ativo antes de aprovar solicitações'
                 });
             }
             
@@ -4474,6 +4474,7 @@ app.put('/api/solicitacoes/:id/aprovar', async (req, res) => {
             console.log(`✅ Admin encontrado: ${admin.nome} (ID: ${admin.id})`);
         }
         
+        // 7. CRIAR AUTORIZAÇÃO
         console.log('💾 Criando autorização...');
         
         const autorizacao = await prisma.autorizacaoAula.create({
@@ -4499,6 +4500,7 @@ app.put('/api/solicitacoes/:id/aprovar', async (req, res) => {
         
         console.log(`✅ Autorização criada: ID ${autorizacao.id}`);
         
+        // 8. ATUALIZAR SOLICITAÇÃO
         console.log('✏️ Atualizando solicitação...');
         
         await prisma.solicitacaoAutorizacao.update({
@@ -4565,6 +4567,22 @@ app.put('/api/solicitacoes/:id/aprovar', async (req, res) => {
             code: error.code
         });
     }
+});
+
+app.post('/api/solicitacoes/:id/aprovar', async (req, res) => {
+    console.log(`📨 POST /api/solicitacoes/${req.params.id}/aprovar - Redirecionando para PUT`);
+    req.method = 'PUT';
+    return app._router.handle(req, res);
+});
+
+app.get('/api/solicitacoes/:id/aprovar', (req, res) => {
+    console.log(`⚠️ GET /api/solicitacoes/${req.params.id}/aprovar - Método incorreto`);
+    res.status(405).json({
+        success: false,
+        error: 'Método não permitido',
+        details: 'Use PUT em vez de GET para aprovar solicitações',
+        allowedMethods: ['PUT', 'POST']
+    });
 });
 
 app.post('/api/solicitacoes/:id/aprovar', async (req, res) => {
@@ -5790,6 +5808,7 @@ process.on('SIGTERM', async () => {
 });
 
 startServer();
+
 
 
 
